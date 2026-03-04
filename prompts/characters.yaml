@@ -1,0 +1,135 @@
+# Character sprite prompt templates
+# Each template generates a COMPOSITE image with multiple sprites arranged together
+
+character_directions_4dir:
+  description: "Generate 2 unique directions (S, E) of a character in one composite image"
+  system_context: >
+    You are a pixel art sprite artist. Generate clean, crisp pixel art on a transparent background.
+    Each sprite must be clearly separated. Use a consistent style throughout.
+  template: >
+    Create a horizontal strip of ${direction_count} pixel art character sprites on a fully transparent background.
+    Each sprite is the SAME character facing a different direction: ${direction_names}.
+
+    Character: ${character_description}
+    Style: ${style}
+    Target resolution per sprite: ${resolution}
+    Maximum colors: ${max_colors}
+    ${palette_hint}
+
+    CRITICAL RULES:
+    - Arrange sprites in a single horizontal row, evenly spaced, left to right in this order: ${direction_names}
+    - Every sprite must be the exact same character with the same proportions, colors, and design
+    - Each sprite should be a standing idle pose facing the specified direction
+    - Use isometric perspective (2:1 ratio, ~30° viewing angle from above)
+    - Background MUST be fully transparent (no floor, no shadow, no background elements)
+    - Clean pixel art: no anti-aliasing, no gradients, no blur — crisp single-pixel edges
+    - Limited color palette: maximum ${max_colors} colors total across all sprites
+  defaults:
+    direction_count: "2"
+    direction_names: "south, east"
+    style: "16-bit SNES RPG style"
+    resolution: "64x64"
+    max_colors: "16"
+    palette_hint: ""
+  reference_strategy: "none"
+
+character_directions_8dir:
+  description: "Generate 5 unique directions (S, SE, E, NE, N) of a character in one composite image"
+  system_context: >
+    You are a pixel art sprite artist. Generate clean, crisp pixel art on a transparent background.
+    Each sprite must be clearly separated. Use a consistent style throughout.
+  template: >
+    Create a horizontal strip of ${direction_count} pixel art character sprites on a fully transparent background.
+    Each sprite is the SAME character facing a different direction: ${direction_names}.
+
+    Character: ${character_description}
+    Style: ${style}
+    Target resolution per sprite: ${resolution}
+    Maximum colors: ${max_colors}
+    ${palette_hint}
+
+    CRITICAL RULES:
+    - Arrange sprites in a single horizontal row, evenly spaced, left to right in this order: ${direction_names}
+    - Every sprite must be the exact same character with the same proportions, colors, and design
+    - Each sprite should be a standing idle pose facing the specified direction
+    - Use isometric perspective (2:1 ratio, ~30° viewing angle from above)
+    - Background MUST be fully transparent
+    - Clean pixel art: no anti-aliasing, no gradients, no blur — crisp single-pixel edges
+    - Limited color palette: maximum ${max_colors} colors total across all sprites
+  defaults:
+    direction_count: "5"
+    direction_names: "south, south_east, east, north_east, north"
+    style: "16-bit SNES RPG style"
+    resolution: "64x64"
+    max_colors: "16"
+    palette_hint: ""
+  reference_strategy: "none"
+
+character_animation:
+  description: "Generate all frames of one animation in one direction as a horizontal strip"
+  system_context: >
+    You are a pixel art animation specialist. Generate clean sprite animation frames on transparent background.
+    All frames must be the same character with the same proportions and colors.
+  template: >
+    Create a horizontal strip of ${frame_count} animation frames showing a pixel art character performing: ${animation_name}.
+
+    Character: ${character_description}
+    Direction: The character is facing ${direction}
+    Animation: ${animation_description}
+    Frame count: ${frame_count} frames total
+    Style: ${style}
+    Target resolution per frame: ${resolution}
+    Maximum colors: ${max_colors}
+    ${palette_hint}
+
+    CRITICAL RULES:
+    - Arrange ALL ${frame_count} frames in a single horizontal row, left to right, in animation order
+    - The character must look IDENTICAL across all frames (same proportions, same colors, same face)
+    - Only the animated parts should change between frames (limbs, effects)
+    - Use isometric perspective matching the ${direction} direction
+    - Background MUST be fully transparent (no floor, no shadow)
+    - Clean pixel art: no anti-aliasing, crisp pixel edges
+    - Show smooth progression of the ${animation_name} motion from start to end
+    - Frame 1 and frame ${frame_count} should transition smoothly if this is a looping animation
+  defaults:
+    animation_name: "idle"
+    animation_description: "breathing idle stance"
+    frame_count: "4"
+    direction: "south"
+    style: "16-bit SNES RPG style"
+    resolution: "64x64"
+    max_colors: "16"
+    palette_hint: ""
+  reference_strategy: "character_reference"
+
+character_custom_animation:
+  description: "Add a custom animation to an existing character using a reference image"
+  system_context: >
+    You are a pixel art animation specialist. You will receive a reference image of a character.
+    Generate new animation frames that match the reference character exactly.
+  template: >
+    Using the provided reference image of the character, create a horizontal strip of ${frame_count}
+    animation frames showing: ${animation_name} — ${animation_description}.
+
+    The character faces ${direction}.
+    Frame count: ${frame_count} frames total
+    Style: ${style}
+    Target resolution per frame: ${resolution}
+    Maximum colors: ${max_colors}
+
+    CRITICAL RULES:
+    - The character in the animation MUST match the reference image exactly (same proportions, colors, features)
+    - Arrange frames in a single horizontal row, left to right, in animation order
+    - Only the animated body parts should change between frames
+    - Background MUST be fully transparent
+    - Clean pixel art: no anti-aliasing, crisp pixel edges
+    - Show smooth motion progression for the ${animation_name} action
+  defaults:
+    animation_name: "custom"
+    animation_description: "custom animation"
+    frame_count: "4"
+    direction: "south"
+    style: "16-bit SNES RPG style"
+    resolution: "64x64"
+    max_colors: "16"
+  reference_strategy: "character_reference"

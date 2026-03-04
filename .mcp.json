@@ -1,0 +1,18 @@
+{
+    "servers": {
+        "pixel-magic": {
+            "type": "stdio",
+            "command": "uv",
+            "args": [
+                "--directory",
+                "${workspaceFolder}",
+                "run",
+                "pixel-magic"
+            ],
+            "env": {
+                "GOOGLE_API_KEY": "${env:GOOGLE_API_KEY}",
+                "OPENAI_API_KEY": "${env:OPENAI_API_KEY}"
+            }
+        }
+    }
+}

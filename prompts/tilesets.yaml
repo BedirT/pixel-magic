@@ -1,0 +1,96 @@
+# Tileset prompt templates
+# Each template generates multiple tiles in a single composite image
+
+tileset_ground:
+  description: "Generate a set of isometric ground tiles in one composite image"
+  system_context: >
+    You are a pixel art environment artist. Generate clean isometric tiles on transparent background.
+    All tiles must share a consistent style and palette.
+  template: >
+    Create a horizontal row of ${count} isometric ground tiles on a transparent background.
+    Each tile is a diamond shape (isometric view, 2:1 width-to-height ratio).
+
+    Biome: ${biome}
+    Tile variants: ${tile_types}
+    Tile size: ${tile_width}x${tile_height} pixels per tile
+    Style: ${style}
+    Maximum colors: ${max_colors}
+
+    CRITICAL RULES:
+    - Arrange tiles in a single horizontal row, evenly spaced, in this order: ${tile_types}
+    - Each tile is a flat isometric diamond shape (no 3D objects on top)
+    - All tiles must tile seamlessly with each other at their edges
+    - Consistent lighting direction (top-left light source)
+    - Background MUST be fully transparent outside the diamond shapes
+    - Clean pixel art: no anti-aliasing, crisp edges
+    - Same palette shared across all tiles
+    - Tiles should have subtle texture variation to avoid looking flat
+  defaults:
+    biome: "temperate forest"
+    tile_types: "grass, dirt, stone"
+    tile_width: "64"
+    tile_height: "32"
+    count: "3"
+    style: "16-bit isometric RPG style"
+    max_colors: "16"
+  reference_strategy: "none"
+
+tileset_objects:
+  description: "Generate isometric objects/props for a tileset"
+  system_context: >
+    You are a pixel art environment artist. Generate clean isometric objects on transparent background.
+  template: >
+    Create a horizontal row of ${count} isometric objects/props on a transparent background.
+
+    Objects: ${tile_types}
+    Biome context: ${biome}
+    Base tile size: ${tile_width}x${tile_height} pixels
+    Style: ${style}
+    Maximum colors: ${max_colors}
+
+    CRITICAL RULES:
+    - Arrange objects in a single horizontal row, evenly spaced
+    - Objects should sit naturally on an isometric ground plane
+    - Consistent scale relative to the base tile size
+    - Background MUST be fully transparent
+    - Clean pixel art: crisp edges, limited palette
+    - Consistent lighting (top-left)
+  defaults:
+    biome: "temperate forest"
+    tile_types: "tree, bush, rock"
+    tile_width: "64"
+    tile_height: "32"
+    count: "3"
+    style: "16-bit isometric RPG style"
+    max_colors: "16"
+  reference_strategy: "none"
+
+tileset_walls:
+  description: "Generate isometric wall/elevation tile variants"
+  system_context: >
+    You are a pixel art environment artist. Generate clean isometric wall segments on transparent background.
+  template: >
+    Create a horizontal row of ${count} isometric wall/elevation variants on a transparent background.
+
+    Wall types: ${tile_types}
+    Biome context: ${biome}
+    Base tile size: ${tile_width}x${tile_height} pixels
+    Style: ${style}
+    Maximum colors: ${max_colors}
+
+    CRITICAL RULES:
+    - Arrange wall segments in a single horizontal row
+    - Walls must connect seamlessly when placed adjacent in an isometric grid
+    - Show the front face and top of the wall in isometric view
+    - Consistent material, lighting, and scale
+    - Background MUST be fully transparent
+    - Clean pixel art
+  defaults:
+    biome: "stone castle"
+    tile_types: "wall_front, wall_corner, wall_end"
+    tile_width: "64"
+    tile_height: "32"
+    count: "3"
+    style: "16-bit isometric RPG style"
+    max_colors: "16"
+  reference_strategy: "none"

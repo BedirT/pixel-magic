@@ -1,0 +1,15 @@
+services:
+  pixel-magic:
+    build: .
+    command: ["--transport", "streamable-http", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000:8000"
+    environment:
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - PIXEL_MAGIC_PROVIDER=${PIXEL_MAGIC_PROVIDER:-gemini}
+    volumes:
+      - ./output:/app/output
+      - ./prompts:/app/prompts
+      - ./palettes:/app/palettes
+    restart: unless-stopped
