@@ -24,8 +24,11 @@ class Settings(BaseSettings):
 
     # Gemini settings
     google_api_key: str = Field(default="", alias="GOOGLE_API_KEY")
-    gemini_model: str = "gemini-2.0-flash-exp"
-    gemini_image_model: str = "gemini-2.0-flash-exp"
+    gemini_model: str = "gemini-2.5-flash"
+    gemini_image_model: str = "gemini-3.1-flash-image-preview"
+    gemini_image_fallback_model: str = "gemini-2.5-flash-image"
+    gemini_enable_image_fallback: bool = True
+    gemini_fallback_timeout_s: float = 120.0
     gemini_thinking_level: Literal["minimal", "high"] = "minimal"
 
     # OpenAI settings
@@ -34,7 +37,7 @@ class Settings(BaseSettings):
     openai_quality: Literal["low", "medium", "high"] = "medium"
 
     # Generation defaults
-    direction_mode: Literal[4, 8] = 4
+    direction_mode: int = Field(default=4)
     image_size: str = "1024x1024"
     default_resolution: str = "64x64"
     palette_size: int = 16

@@ -56,6 +56,9 @@ def _create_provider(settings: Settings):
         api_key=settings.google_api_key,
         model=settings.gemini_model,
         image_model=settings.gemini_image_model,
+        fallback_image_model=settings.gemini_image_fallback_model,
+        enable_fallback=settings.gemini_enable_image_fallback,
+        fallback_after_seconds=settings.gemini_fallback_timeout_s,
     )
 
 
@@ -910,10 +913,10 @@ async def list_prompt_templates(ctx) -> str:
     result = []
     for t in templates:
         result.append({
-            "name": t.name,
-            "description": t.description,
-            "parameters": list(t.defaults.keys()) if t.defaults else [],
-            "reference_strategy": t.reference_strategy,
+            "name": t["name"],
+            "description": t["description"],
+            "parameters": list(t["parameters"].keys()) if t.get("parameters") else [],
+            "reference_strategy": t.get("reference_strategy", ""),
         })
 
     return json.dumps(result, indent=2)
@@ -982,3 +985,92 @@ async def set_style_defaults(
         "palette_size": state.settings.palette_size,
         "alpha_policy": state.settings.alpha_policy,
     }, indent=2)
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  EVALUATION TOOLS
+# ══════════════════════════════════════════════════════════════════════
+
+
+@mcp.tool()
+async def run_evaluation(
+    ctx,
+    variant_label: str = "default",
+    case_names: list[str] | None = None,
+    repeats: int = 1,
+) -> str:
+    """Run the LLM-as-judge evaluation on standard test cases.
+
+    Generates pixel art for each test case and evaluates quality using
+    structured rubrics. Results are saved to output/eval/<variant_label>/.
+
+    Args:
+        variant_label: Label for this evaluation run (e.g., "gemini_v1", "openai_baseline").
+        case_names: Optional list of specific case names to run. Runs all if omitted.
+        repeats: Number of times to repeat each case (for statistical significance).
+
+    Returns:
+        JSON summary with per-case scores and aggregate statistics.
+    """
+    from pixel_magic.evaluation.cases import get_standard_cases
+    from pixel_magic.evaluation.metrics import aggregate_results
+    from pixel_magic.evaluation.runner import EvalRunner
+
+    state = _get_state(ctx)
+    runner = EvalRunner(state.provider, state.prompts, state.settings)
+
+    cases = get_standard_cases()
+    if case_names:
+        cases = [c for c in cases if c.name in case_names]
+
+    run = await runner.run_all(cases, variant_label=variant_label, repeats=repeats)
+    agg = aggregate_results(run.results, variant_label)
+
+    return json.dumps({
+        "status": "success",
+        "variant": variant_label,
+        "total_cases": agg.total_runs,
+        "errors": agg.error_count,
+        "overall_mean": round(agg.overall_mean, 3),
+        "overall_pass_rate": round(agg.overall_pass_rate, 3),
+        "dimensions": {k: round(v.mean, 3) for k, v in agg.dimensions.items()},
+        "results_path": str(state.settings.output_dir / "eval" / variant_label / "results.json"),
+    }, indent=2)
+
+
+@mcp.tool()
+async def compare_evaluations(
+    ctx,
+    run_paths: list[str],
+) -> str:
+    """Compare multiple evaluation runs and generate a scientific report.
+
+    Args:
+        run_paths: List of paths to evaluation results.json files.
+
+    Returns:
+        Markdown comparison report with statistical analysis.
+    """
+    from pixel_magic.evaluation.report import generate_report
+    from pixel_magic.evaluation.runner import EvalRun
+
+    state = _get_state(ctx)
+
+    runs = [EvalRun.load(Path(p)) for p in run_paths]
+    report_dir = state.settings.output_dir / "eval" / "comparison"
+    md = generate_report(runs, output_dir=report_dir)
+
+    return md
+
+
+@mcp.tool()
+async def list_eval_cases(ctx) -> str:
+    """List all available evaluation test cases.
+
+    Returns:
+        JSON list of test case definitions.
+    """
+    from pixel_magic.evaluation.cases import get_standard_cases
+
+    cases = get_standard_cases()
+    return json.dumps([c.to_dict() for c in cases], indent=2)

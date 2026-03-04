@@ -113,6 +113,13 @@ class OpenAIProvider(ImageProvider):
                     image=image,
                     prompt_used=prompt,
                     model_used=self._model,
+                    metadata=_extract_openai_metadata(
+                        response=response,
+                        model_used=self._model,
+                        size=size,
+                        quality=self._quality,
+                        endpoint="images.generate",
+                    ),
                 )
             except Exception as e:
                 delay = BASE_DELAY * (2**attempt)
@@ -160,6 +167,13 @@ class OpenAIProvider(ImageProvider):
                     image=image,
                     prompt_used=prompt,
                     model_used=self._model,
+                    metadata=_extract_openai_metadata(
+                        response=response,
+                        model_used=self._model,
+                        size=(config.image_size if config else "1024x1024"),
+                        quality=self._quality,
+                        endpoint="responses.create",
+                    ),
                 )
             except Exception as e:
                 delay = BASE_DELAY * (2**attempt)
@@ -225,3 +239,34 @@ def _extract_openai_image(response) -> Image.Image:
         if output.type == "image_generation_call":
             return _decode_b64_image(output.result)
     raise RuntimeError("No image found in OpenAI response.")
+
+
+def _extract_openai_metadata(
+    response,
+    model_used: str,
+    size: str,
+    quality: str,
+    endpoint: str,
+) -> dict:
+    """Extract best-effort usage metadata from OpenAI responses."""
+    usage_dict: dict[str, int] = {}
+    usage = getattr(response, "usage", None)
+
+    if usage is not None:
+        for key in (
+            "input_tokens",
+            "output_tokens",
+            "total_tokens",
+        ):
+            value = getattr(usage, key, None)
+            if isinstance(value, int):
+                usage_dict[key] = value
+
+    return {
+        "provider": "openai",
+        "model": model_used,
+        "size": size,
+        "quality": quality,
+        "endpoint": endpoint,
+        "usage": usage_dict,
+    }
