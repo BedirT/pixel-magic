@@ -60,7 +60,7 @@ Then in `.vscode/mcp.json`:
   "servers": {
     "pixel-magic": {
       "type": "streamable-http",
-      "url": "http://localhost:8000/mcp"
+      "url": "http://localhost:5363/mcp"
     }
   }
 }
@@ -102,7 +102,7 @@ Then in the Claude Desktop config:
   "mcpServers": {
     "pixel-magic": {
       "type": "streamable-http",
-      "url": "http://localhost:8000/mcp"
+      "url": "http://localhost:5363/mcp"
     }
   }
 }
@@ -130,7 +130,7 @@ claude
 
 ```bash
 docker compose up -d
-claude mcp add --transport streamable-http pixel-magic http://localhost:8000/mcp
+claude mcp add --transport streamable-http pixel-magic http://localhost:5363/mcp
 ```
 
 ---
@@ -149,7 +149,7 @@ codex mcp add pixel-magic -- uv --directory /absolute/path/to/pixel-magic run pi
 
 ```bash
 docker compose up -d
-codex mcp add --transport streamable-http pixel-magic http://localhost:8000/mcp
+codex mcp add --transport streamable-http pixel-magic http://localhost:5363/mcp
 ```
 
 ---

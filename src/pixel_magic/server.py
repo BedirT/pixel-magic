@@ -87,7 +87,7 @@ async def lifespan(server: FastMCP):
 
 mcp = FastMCP(
     "Pixel Magic",
-    description="AI-powered pixel art sprite generation and conversion pipeline",
+    instructions="AI-powered pixel art sprite generation and conversion pipeline",
     lifespan=lifespan,
 )
 
