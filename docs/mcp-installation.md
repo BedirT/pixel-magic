@@ -149,7 +149,7 @@ codex mcp add pixel-magic -- uv --directory /absolute/path/to/pixel-magic run pi
 
 ```bash
 docker compose up -d
-codex mcp add --transport streamable-http pixel-magic http://localhost:5363/mcp
+codex mcp add --url http://localhost:5363/mcp pixel-magic
 ```
 
 ---
