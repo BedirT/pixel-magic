@@ -2,40 +2,34 @@
 
 from __future__ import annotations
 
-import base64
-import io
 import json
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
 
 from mcp.server.fastmcp import Context, FastMCP
 from PIL import Image
 
-from pixel_magic.config import Settings, get_settings, reset_settings
-from pixel_magic.generation.orchestrator import SpriteGenerator
+from pixel_magic.config import Settings, get_settings
 from pixel_magic.generation.prompts import PromptBuilder
-from pixel_magic.models.asset import (
-    AnimationDef,
-    CharacterSpec,
-    DEFAULT_ANIMATIONS,
-    DirectionMode,
-    EffectSpec,
-    ItemSpec,
-    TilesetSpec,
-    UIElementSpec,
-)
+from pixel_magic.models.asset import DEFAULT_ANIMATIONS
 from pixel_magic.models.palette import Palette
-from pixel_magic.pipeline.export import export_all
+from pixel_magic.pipeline.cleanup import cleanup_sprite
+from pixel_magic.pipeline.grid import infer_grid
 from pixel_magic.pipeline.ingest import normalize_sprite
 from pixel_magic.pipeline.palette import extract_adaptive_palette, quantize_image
-from pixel_magic.pipeline.cleanup import cleanup_sprite
-from pixel_magic.pipeline.consistency import lock_palette_across_clips
-from pixel_magic.pipeline.grid import infer_grid
 from pixel_magic.pipeline.projection import project_to_grid
 from pixel_magic.qa.deterministic import run_deterministic_qa
-from pixel_magic.qa.vision import run_vision_qa, build_correction_prompt
+from pixel_magic.qa.vision import run_vision_qa
+from pixel_magic.workflow import (
+    AgentRuntime,
+    AssetType,
+    GenerationRequest,
+    JobResult,
+    ProviderAdapter,
+    WorkflowExecutor,
+    create_provider,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,22 +38,7 @@ logger = logging.getLogger(__name__)
 
 def _create_provider(settings: Settings):
     """Create the image provider based on settings."""
-    if settings.provider == "openai":
-        from pixel_magic.providers.openai import OpenAIProvider
-        return OpenAIProvider(
-            api_key=settings.openai_api_key,
-            model=settings.openai_model,
-            quality=settings.openai_quality,
-        )
-    from pixel_magic.providers.gemini import GeminiProvider
-    return GeminiProvider(
-        api_key=settings.google_api_key,
-        model=settings.gemini_model,
-        image_model=settings.gemini_image_model,
-        fallback_image_model=settings.gemini_image_fallback_model,
-        enable_fallback=settings.gemini_enable_image_fallback,
-        fallback_after_seconds=settings.gemini_fallback_timeout_s,
-    )
+    return create_provider(settings)
 
 
 # ── App state ─────────────────────────────────────────────────────────
@@ -70,8 +49,17 @@ class AppState:
     def __init__(self, settings: Settings):
         self.settings = settings
         self.provider = _create_provider(settings)
+        self.provider_adapter = ProviderAdapter(self.provider, settings)
+        self.workflow_agents = AgentRuntime(
+            model=settings.agent_model,
+            api_key=settings.openai_api_key,
+        )
+        self.workflow_executor = WorkflowExecutor(
+            settings=settings,
+            provider=self.provider_adapter,
+            agents=self.workflow_agents,
+        )
         self.prompts = PromptBuilder(settings.prompts_dir)
-        self.generator = SpriteGenerator(self.provider, self.prompts, settings)
 
 
 @asynccontextmanager
@@ -103,13 +91,6 @@ def _get_state(ctx) -> AppState:
     return ctx.request_context.lifespan_context
 
 
-def _image_to_base64(image: Image.Image) -> str:
-    """Convert PIL Image to base64 PNG string."""
-    buf = io.BytesIO()
-    image.save(buf, format="PNG")
-    return base64.b64encode(buf.getvalue()).decode()
-
-
 def _load_palette(settings: Settings, palette_name: str | None = None) -> Palette | None:
     """Load a palette by name from the palettes directory."""
     if not palette_name:
@@ -120,85 +101,24 @@ def _load_palette(settings: Settings, palette_name: str | None = None) -> Palett
     return None
 
 
-def _parse_animations(animations_input: dict[str, Any] | None) -> dict[str, AnimationDef]:
-    """Parse animation definitions from MCP tool input."""
-    if not animations_input:
-        return {
-            "idle": DEFAULT_ANIMATIONS["idle"],
-            "walk": DEFAULT_ANIMATIONS["walk"],
-        }
-
-    result = {}
-    for name, config in animations_input.items():
-        if isinstance(config, str):
-            # Reference a default animation by name
-            if config in DEFAULT_ANIMATIONS:
-                result[name] = DEFAULT_ANIMATIONS[config]
-            continue
-
-        if isinstance(config, dict):
-            result[name] = AnimationDef(
-                name=name,
-                frame_count=config.get("frame_count", 4),
-                description=config.get("description", name),
-                duration_ms=config.get("duration_ms", 100),
-                is_looping=config.get("is_looping", True),
-            )
-
-    return result or {"idle": DEFAULT_ANIMATIONS["idle"], "walk": DEFAULT_ANIMATIONS["walk"]}
+def _flatten_frame_paths(frame_paths: dict[str, list[str]]) -> list[str]:
+    paths: list[str] = []
+    for key in sorted(frame_paths):
+        paths.extend(frame_paths[key])
+    return paths
 
 
-async def _run_pipeline_on_clips(
-    clips: dict[str, list],
-    settings: Settings,
-    palette: Palette | None,
-    name: str,
-    direction_mode: DirectionMode,
-) -> dict[str, str]:
-    """Run post-processing pipeline on generated clips and export."""
-    # Extract adaptive palette if none provided
-    all_frames = []
-    for anim_clips in clips.values():
-        for clip in anim_clips:
-            for frame in clip.frames:
-                all_frames.append(frame.image)
-
-    if palette is None and all_frames:
-        palette = extract_adaptive_palette(all_frames, settings.palette_size)
-
-    # Quantize if palette available
-    if palette:
-        for anim_clips in clips.values():
-            for clip in anim_clips:
-                for i, frame in enumerate(clip.frames):
-                    quantized = quantize_image(frame.image, palette)
-                    cleaned = cleanup_sprite(
-                        quantized,
-                        palette.colors,
-                        settings.min_island_size,
-                        settings.max_hole_size,
-                        settings.enforce_outline,
-                    )
-                    frame.image = cleaned
-
-        # Lock palette
-        for anim_clips in clips.values():
-            lock_palette_across_clips(anim_clips, palette)
-
-    # Export
-    output_dir = settings.output_dir / name
-    outputs = export_all(
-        clips,
-        output_dir,
-        name=name,
-        direction_mode=direction_mode,
-        palette=palette,
-        padding=settings.atlas_padding,
-        export_pngs=settings.export_individual_pngs,
-        export_godot=settings.export_godot_tres,
-    )
-
-    return {k: str(v) for k, v in outputs.items()}
+def _serialize_workflow_result(result: JobResult, *, deprecation_note: str = "") -> str:
+    payload = result.model_dump(mode="json", exclude_none=True)
+    artifacts = payload.get("artifacts")
+    if isinstance(artifacts, dict):
+        frame_paths = artifacts.get("frame_paths", {})
+        payload["output_paths"] = _flatten_frame_paths(frame_paths)
+        payload["output_dir"] = artifacts.get("output_dir")
+    if deprecation_note:
+        payload.setdefault("warnings", [])
+        payload["warnings"].append(deprecation_note)
+    return json.dumps(payload, indent=2)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -218,8 +138,6 @@ async def generate_character(
     max_colors: int = 16,
     palette_name: str | None = None,
     palette_hint: str = "",
-    validate: bool = False,
-    max_retries: int = 2,
 ) -> str:
     """Generate a complete pixel art character sprite set with all directions and animations.
 
@@ -236,57 +154,31 @@ async def generate_character(
         max_colors: Maximum palette colors.
         palette_name: Name of a .hex palette file to use (e.g., "default_16").
         palette_hint: Text hint for color palette (e.g., "warm earth tones").
-        validate: If True, run an LLM check after each generation and retry on failure.
-        max_retries: Max correction retries when validate is True.
 
     Returns:
         JSON string with generation results and output file paths.
     """
     state = _get_state(ctx)
-
-    dir_mode = DirectionMode.FOUR if direction_mode == 4 else DirectionMode.EIGHT
-    anim_defs = _parse_animations(animations)
-
-    spec = CharacterSpec(
+    request = GenerationRequest(
+        asset_type=AssetType.CHARACTER,
         name=name,
-        description=character_description,
+        objective=character_description,
         style=style,
-        direction_mode=dir_mode,
         resolution=resolution,
         max_colors=max_colors,
-        palette_hint=palette_hint,
-        animations=anim_defs,
+        palette_name=palette_name,
+        parameters={
+            "direction_mode": direction_mode,
+            "animations": animations or {},
+            "palette_hint": palette_hint,
+        },
     )
-
-    palette = _load_palette(state.settings, palette_name)
-
-    # Generate
-    clips = await state.generator.generate_character(spec, validate=validate, max_retries=max_retries)
-
-    # Pipeline + export
-    outputs = await _run_pipeline_on_clips(clips, state.settings, palette, name, dir_mode)
-
-    # QA
-    all_frames = []
-    for anim_clips in clips.values():
-        for clip in anim_clips:
-            all_frames.extend([f.image for f in clip.frames])
-
-    qa = run_deterministic_qa(all_frames, palette, state.settings.alpha_policy)
-
-    return json.dumps({
-        "status": "success",
-        "name": name,
-        "directions": direction_mode,
-        "animations": list(anim_defs.keys()),
-        "total_frames": len(all_frames),
-        "outputs": outputs,
-        "qa": qa.to_dict(),
-    }, indent=2)
+    result = await state.workflow_executor.run(request)
+    return _serialize_workflow_result(result)
 
 
 @mcp.tool()
-async def add_character_animation(
+async def extend_character_animation(
     ctx: Context,
     character_name: str,
     animation_name: str,
@@ -299,68 +191,59 @@ async def add_character_animation(
     style: str = "16-bit SNES RPG style",
     resolution: str = "64x64",
     max_colors: int = 16,
+    palette_name: str | None = None,
 ) -> str:
-    """Add a custom animation to an existing character using a reference image.
+    """Create a new animation for an existing character design from a reference image.
 
     Args:
-        character_name: Name of the existing character.
-        animation_name: Name for the new animation (e.g., "jump", "fishing").
-        reference_image_path: Path to a reference image of the character.
+        character_name: Existing character identity for naming and metadata.
+        animation_name: Animation name (e.g., "jump", "fishing", "cast").
+        reference_image_path: Filesystem path to a reference sprite image.
         frame_count: Number of animation frames.
-        description: Description of the animation motion.
+        description: Motion description for the target animation.
         duration_ms: Duration per frame in milliseconds.
         is_looping: Whether the animation loops.
-        direction_mode: 4 or 8 directions.
-        style: Pixel art style.
-        resolution: Target resolution.
-        max_colors: Max palette colors.
+        direction_mode: 4 or 8 directional generation mode.
+        style: Pixel art style string.
+        resolution: Per-frame output resolution (e.g., 64x64).
+        max_colors: Max color count for quantization.
+        palette_name: Optional named palette.
 
     Returns:
-        JSON with output paths and QA results.
+        Workflow JobResult JSON plus flattened output_paths.
     """
     state = _get_state(ctx)
-
-    anim_def = AnimationDef(
-        name=animation_name,
-        frame_count=frame_count,
-        description=description or animation_name,
-        duration_ms=duration_ms,
-        is_looping=is_looping,
-    )
-
-    dir_mode = DirectionMode.FOUR if direction_mode == 4 else DirectionMode.EIGHT
-
-    clips = await state.generator.add_character_animation(
-        character_name=character_name,
-        reference_image_path=Path(reference_image_path),
-        anim_def=anim_def,
-        direction_mode=dir_mode,
+    request = GenerationRequest(
+        asset_type=AssetType.CHARACTER,
+        name=f"{character_name}_{animation_name}",
+        objective=(
+            f"Extend character '{character_name}' with animation '{animation_name}'. "
+            f"Animation brief: {description or animation_name}."
+        ),
         style=style,
         resolution=resolution,
         max_colors=max_colors,
+        expected_frames=frame_count,
+        palette_name=palette_name,
+        parameters={
+            "extension_mode": True,
+            "character_name": character_name,
+            "animation_name": animation_name,
+            "direction_mode": direction_mode,
+            "reference_image_path": reference_image_path,
+            "external_reference_paths": [reference_image_path],
+            "animations": {
+                animation_name: {
+                    "frame_count": frame_count,
+                    "description": description or animation_name,
+                    "duration_ms": duration_ms,
+                    "is_looping": is_looping,
+                }
+            },
+        },
     )
-
-    # Export individual PNGs
-    output_dir = state.settings.output_dir / character_name / animation_name
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    paths = []
-    for clip in clips:
-        for frame in clip.frames:
-            dir_name = clip.direction.value if clip.direction else "none"
-            fname = f"{animation_name}_{dir_name}_{frame.frame_index:03d}.png"
-            p = output_dir / fname
-            frame.image.save(p)
-            paths.append(str(p))
-
-    return json.dumps({
-        "status": "success",
-        "character": character_name,
-        "animation": animation_name,
-        "frames_per_direction": frame_count,
-        "directions": direction_mode,
-        "output_paths": paths,
-    }, indent=2)
+    result = await state.workflow_executor.run(request)
+    return _serialize_workflow_result(result)
 
 
 @mcp.tool()
@@ -374,8 +257,6 @@ async def generate_tileset(
     style: str = "16-bit isometric RPG style",
     max_colors: int = 16,
     palette_name: str | None = None,
-    validate: bool = False,
-    max_retries: int = 2,
 ) -> str:
     """Generate an isometric tileset for a biome.
 
@@ -388,49 +269,29 @@ async def generate_tileset(
         style: Pixel art style.
         max_colors: Max palette colors.
         palette_name: Optional palette file name.
-        validate: If True, run an LLM check after generation and retry on failure.
-        max_retries: Max correction retries when validate is True.
 
     Returns:
         JSON with output paths.
     """
     state = _get_state(ctx)
-
-    spec = TilesetSpec(
+    request = GenerationRequest(
+        asset_type=AssetType.TILESET,
         name=name,
-        biome=biome,
-        tile_types=tile_types,
-        tile_width=tile_width,
-        tile_height=tile_height,
+        objective=f"{biome} isometric tileset",
         style=style,
+        resolution=f"{tile_width}x{tile_height}",
         max_colors=max_colors,
+        expected_frames=max(1, len(tile_types)),
+        palette_name=palette_name,
+        parameters={
+            "biome": biome,
+            "tile_types": tile_types,
+            "tile_width": tile_width,
+            "tile_height": tile_height,
+        },
     )
-
-    palette = _load_palette(state.settings, palette_name)
-    assets = await state.generator.generate_tileset(spec, validate=validate, max_retries=max_retries)
-
-    output_dir = state.settings.output_dir / name
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    paths = []
-    frames = []
-    for asset in assets:
-        frames.append(asset.image)
-        fname = f"{name}_{asset.animation_name}_{asset.frame_index:03d}.png"
-        p = output_dir / fname
-        asset.image.save(p)
-        paths.append(str(p))
-
-    if palette is None and frames:
-        palette = extract_adaptive_palette(frames, max_colors)
-
-    return json.dumps({
-        "status": "success",
-        "name": name,
-        "biome": biome,
-        "tile_count": len(assets),
-        "output_paths": paths,
-    }, indent=2)
+    result = await state.workflow_executor.run(request)
+    return _serialize_workflow_result(result)
 
 
 @mcp.tool()
@@ -442,8 +303,6 @@ async def generate_items(
     max_colors: int = 16,
     view: str = "front-facing icon",
     palette_name: str | None = None,
-    validate: bool = False,
-    max_retries: int = 2,
 ) -> str:
     """Generate pixel art item/pickup sprites in batch.
 
@@ -454,39 +313,27 @@ async def generate_items(
         max_colors: Max palette colors.
         view: Viewing angle/perspective.
         palette_name: Optional palette file name.
-        validate: If True, run an LLM check after generation and retry on failure.
-        max_retries: Max correction retries when validate is True.
 
     Returns:
         JSON with output paths.
     """
     state = _get_state(ctx)
-
-    spec = ItemSpec(
-        descriptions=item_descriptions,
-        resolution=resolution,
+    request = GenerationRequest(
+        asset_type=AssetType.ITEMS,
+        name="items",
+        objective=f"Item icon set: {', '.join(item_descriptions)}",
         style=style,
+        resolution=resolution,
         max_colors=max_colors,
-        view=view,
+        expected_frames=max(1, len(item_descriptions)),
+        palette_name=palette_name,
+        parameters={
+            "descriptions": item_descriptions,
+            "view": view,
+        },
     )
-
-    assets = await state.generator.generate_items(spec, validate=validate, max_retries=max_retries)
-
-    output_dir = state.settings.output_dir / "items"
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    paths = []
-    for asset in assets:
-        name_slug = (asset.animation_name or f"item_{asset.frame_index}").replace(" ", "_")
-        p = output_dir / f"{name_slug}.png"
-        asset.image.save(p)
-        paths.append(str(p))
-
-    return json.dumps({
-        "status": "success",
-        "item_count": len(assets),
-        "output_paths": paths,
-    }, indent=2)
+    result = await state.workflow_executor.run(request)
+    return _serialize_workflow_result(result)
 
 
 @mcp.tool()
@@ -498,8 +345,6 @@ async def generate_effect(
     style: str = "16-bit pixel art",
     max_colors: int = 12,
     color_emphasis: str = "",
-    validate: bool = False,
-    max_retries: int = 2,
 ) -> str:
     """Generate an animated pixel art visual effect (explosion, magic, etc.).
 
@@ -510,39 +355,26 @@ async def generate_effect(
         style: Pixel art style.
         max_colors: Max palette colors.
         color_emphasis: Dominant colors (e.g., "fire: orange, red, yellow").
-        validate: If True, run an LLM check after generation and retry on failure.
-        max_retries: Max correction retries when validate is True.
 
     Returns:
         JSON with output paths.
     """
     state = _get_state(ctx)
-
-    spec = EffectSpec(
-        description=effect_description,
-        frame_count=frame_count,
-        resolution=resolution,
+    request = GenerationRequest(
+        asset_type=AssetType.EFFECT,
+        name="effects",
+        objective=effect_description,
         style=style,
+        resolution=resolution,
         max_colors=max_colors,
-        color_emphasis=color_emphasis,
+        expected_frames=frame_count,
+        parameters={
+            "frame_count": frame_count,
+            "color_emphasis": color_emphasis,
+        },
     )
-
-    clip = await state.generator.generate_effect(spec, validate=validate, max_retries=max_retries)
-
-    output_dir = state.settings.output_dir / "effects"
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    paths = []
-    for frame in clip.frames:
-        p = output_dir / f"effect_{frame.frame_index:03d}.png"
-        frame.image.save(p)
-        paths.append(str(p))
-
-    return json.dumps({
-        "status": "success",
-        "frame_count": clip.frame_count,
-        "output_paths": paths,
-    }, indent=2)
+    result = await state.workflow_executor.run(request)
+    return _serialize_workflow_result(result)
 
 
 @mcp.tool()
@@ -552,8 +384,6 @@ async def generate_ui_elements(
     resolution: str = "64x64",
     style: str = "16-bit RPG UI style",
     max_colors: int = 8,
-    validate: bool = False,
-    max_retries: int = 2,
 ) -> str:
     """Generate pixel art UI elements in batch.
 
@@ -562,38 +392,23 @@ async def generate_ui_elements(
         resolution: Element resolution.
         style: Pixel art style.
         max_colors: Max palette colors.
-        validate: If True, run an LLM check after generation and retry on failure.
-        max_retries: Max correction retries when validate is True.
 
     Returns:
         JSON with output paths.
     """
     state = _get_state(ctx)
-
-    spec = UIElementSpec(
-        descriptions=element_descriptions,
-        resolution=resolution,
+    request = GenerationRequest(
+        asset_type=AssetType.UI,
+        name="ui",
+        objective=f"UI element set: {', '.join(element_descriptions)}",
         style=style,
+        resolution=resolution,
         max_colors=max_colors,
+        expected_frames=max(1, len(element_descriptions)),
+        parameters={"descriptions": element_descriptions},
     )
-
-    assets = await state.generator.generate_ui_elements(spec, validate=validate, max_retries=max_retries)
-
-    output_dir = state.settings.output_dir / "ui"
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    paths = []
-    for asset in assets:
-        name_slug = (asset.animation_name or f"ui_{asset.frame_index}").replace(" ", "_")
-        p = output_dir / f"{name_slug}.png"
-        asset.image.save(p)
-        paths.append(str(p))
-
-    return json.dumps({
-        "status": "success",
-        "element_count": len(assets),
-        "output_paths": paths,
-    }, indent=2)
+    result = await state.workflow_executor.run(request)
+    return _serialize_workflow_result(result)
 
 
 @mcp.tool()
@@ -608,32 +423,26 @@ async def generate_custom(
     Args:
         prompt: Your custom generation prompt.
         frame_count: Number of frames to extract from the composite.
-        layout: Layout of frames in the composite: horizontal_strip, vertical_strip, grid, auto_detect.
+        layout: Layout of frames in the composite:
+            horizontal_strip, vertical_strip, grid, auto_detect.
 
     Returns:
         JSON with output paths.
     """
-    from pixel_magic.models.asset import CompositeLayout
-
     state = _get_state(ctx)
-
-    layout_enum = CompositeLayout(layout)
-    assets = await state.generator.generate_custom(prompt, frame_count, layout_enum)
-
-    output_dir = state.settings.output_dir / "custom"
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    paths = []
-    for asset in assets:
-        p = output_dir / f"custom_{asset.frame_index:03d}.png"
-        asset.image.save(p)
-        paths.append(str(p))
-
-    return json.dumps({
-        "status": "success",
-        "frame_count": len(assets),
-        "output_paths": paths,
-    }, indent=2)
+    request = GenerationRequest(
+        asset_type=AssetType.CUSTOM,
+        name="custom",
+        objective=prompt,
+        style="custom",
+        resolution=state.settings.default_resolution,
+        max_colors=state.settings.palette_size,
+        expected_frames=frame_count,
+        layout=layout,
+        parameters={},
+    )
+    result = await state.workflow_executor.run(request)
+    return _serialize_workflow_result(result)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -658,7 +467,8 @@ async def convert_image(
 
     Args:
         image_path: Path to the input image.
-        target_resolution: Optional target resolution (e.g., "64x64"). If provided, grid is inferred from this.
+        target_resolution: Optional target resolution (e.g., "64x64").
+            If provided, grid is inferred from this.
         palette_name: Optional palette name to use.
         max_colors: Number of colors for adaptive palette.
         alpha_policy: "binary" or "keep8bit".
@@ -967,7 +777,16 @@ async def set_provider(ctx: Context, provider: str) -> str:
     # Update settings
     state.settings.provider = provider
     state.provider = _create_provider(state.settings)
-    state.generator = SpriteGenerator(state.provider, state.prompts, state.settings)
+    state.provider_adapter = ProviderAdapter(state.provider, state.settings)
+    state.workflow_agents = AgentRuntime(
+        model=state.settings.agent_model,
+        api_key=state.settings.openai_api_key,
+    )
+    state.workflow_executor = WorkflowExecutor(
+        settings=state.settings,
+        provider=state.provider_adapter,
+        agents=state.workflow_agents,
+    )
 
     return json.dumps({"status": "success", "provider": provider})
 

@@ -1,133 +1,95 @@
 # Pixel Magic
 
-AI-powered pixel art sprite generation and conversion pipeline, exposed as an MCP server.
+Workflow-native MCP toolkit for game-ready pixel art generation.
 
-Generate game-ready character sheets, tilesets, items, effects, and UI elements — all in consistent pixel art style with deterministic post-processing and quality assurance.
+Pixel Magic provides a deterministic generation pipeline with agent orchestration:
+
+- fixed stage transitions
+- mandatory deterministic QA gate
+- mandatory final validator agent gate
+- one correction retry budget
 
 ## Features
 
-- **AI Generation** — Gemini (primary) or OpenAI image generation with crafted prompt templates
-- **Full Pipeline** — Background removal → grid inference → downscale → palette quantization → cleanup → consistency → export
-- **Separator Framing** — Magenta (#FF00FF) divider lines in prompts enable deterministic frame extraction; graceful fallback to heuristic detection when absent
-- **Multi-direction Characters** — 4-dir (SE + NE unique, SW + NW via flips) or 8-dir (5 unique + flips) with proper isometric convention
-- **Animation Support** — Walk, run, idle, attack, death, hit, cast — or define custom animations
-- **Quality Assurance** — Deterministic checks (palette, grid, islands, flicker) + AI vision evaluation
-- **Export Formats** — PNG atlas + JSON metadata, individual PNGs, Godot SpriteFrames `.tres`, Godot TileSet `.tres`
-- **MCP Server** — 16 tools accessible from Copilot, Claude Desktop, Claude Code, Codex, or any MCP client
-- **Palette System** — Bundled palettes (default_16, survival_earth, fantasy_rpg) or bring your own `.hex` files
+- character, tileset, item, effect, UI, and custom generation tools
+- character animation extension from a reference image via `extend_character_animation`
+- provider support: Gemini and OpenAI
+- deterministic post-processing and artifact exports
+- offline LLM-as-a-Judge evaluation and regression reporting
 
 ## Quick Start
 
 ```bash
-# Install
-git clone https://github.com/your-org/pixel-magic.git
+git clone https://github.com/BedirT/pixel-magic.git
 cd pixel-magic
 uv sync
-
-# Configure
 cp .env.example .env
-# Add your GOOGLE_API_KEY and/or OPENAI_API_KEY to .env
-
-# Run as MCP server (stdio)
+# set GOOGLE_API_KEY and/or OPENAI_API_KEY
 uv run pixel-magic
-
-# Run as HTTP server
-uv run pixel-magic --transport streamable-http --port 8000
-
-# Run with Docker
-docker compose up -d
 ```
 
 ## MCP Tools
 
-### Generation
+Generation:
 
-| Tool | Description |
-|---|---|
-| `generate_character` | Full character sheet: idle directions + animations |
-| `add_character_animation` | Add animation to existing character using reference |
-| `generate_tileset` | Ground, object, or wall tiles |
-| `generate_items` | Batch item icons or world-drop sprites |
-| `generate_effect` | Animated VFX (explosions, magic, etc.) |
-| `generate_ui_elements` | UI components (bars, slots, buttons) |
-| `generate_custom` | Free-form prompt with full pipeline |
+- `generate_character`
+- `extend_character_animation`
+- `generate_tileset`
+- `generate_items`
+- `generate_effect`
+- `generate_ui_elements`
+- `generate_custom`
 
-### Pipeline
+Pipeline and QA:
 
-| Tool | Description |
-|---|---|
-| `convert_image` | Convert any image to pixel art |
-| `process_sprite_sheet` | Process an existing sprite sheet through the pipeline |
-| `extract_frames_tool` | Extract individual frames from a sprite sheet |
+- `convert_image`
+- `process_sprite_sheet`
+- `extract_frames_tool`
+- `run_qa_check`
 
-### Quality
+Utility and evaluation:
 
-| Tool | Description |
-|---|---|
-| `run_qa_check` | Run deterministic + vision QA on sprites |
+- `list_palettes`
+- `list_animations`
+- `list_prompt_templates`
+- `set_provider`
+- `set_style_defaults`
+- `run_evaluation`
+- `compare_evaluations`
+- `list_eval_cases`
 
-### Utility
+## Documentation
 
-| Tool | Description |
-|---|---|
-| `list_palettes` | Show available color palettes |
-| `list_animations` | Show built-in animation presets |
-| `list_prompt_templates` | Show available prompt templates |
-| `set_provider` | Switch between gemini/openai |
-| `set_style_defaults` | Update default resolution, palette, style |
+Project docs and MCP docs are under `docs/`, with a Docusaurus site under `website/`.
 
-## Project Structure
+Run docs locally:
 
-```
-pixel-magic/
-├── src/pixel_magic/
-│   ├── __main__.py          # CLI entry point
-│   ├── server.py            # MCP server (16 tools)
-│   ├── config.py            # Pydantic settings
-│   ├── models/              # Data models
-│   │   ├── asset.py         # Sprite, animation, spec types
-│   │   ├── palette.py       # Palette & dither config
-│   │   └── metadata.py      # QA reports, atlas metadata
-│   ├── providers/           # AI image providers
-│   │   ├── base.py          # Abstract interface
-│   │   ├── gemini.py        # Google Gemini
-│   │   └── openai.py        # OpenAI Images API
-│   ├── generation/          # Prompt & orchestration
-│   │   ├── prompts.py       # Template loader
-│   │   ├── extractor.py     # Frame extraction (separator + heuristic)
-│   │   ├── orchestrator.py  # Multi-step generation coordinator
-│   │   └── prompt_library/  # Python template modules
-│   ├── pipeline/            # Deterministic post-processing
-│   │   ├── ingest.py        # Load, normalize, bg removal
-│   │   ├── grid.py          # Grid inference
-│   │   ├── projection.py    # Downsample to target resolution
-│   │   ├── palette.py       # OKLab quantization & dithering
-│   │   ├── cleanup.py       # AA removal, islands, outlines
-│   │   ├── consistency.py   # Palette lock, pivot, jitter
-│   │   └── export.py        # Atlas, JSON, Godot .tres
-│   └── qa/                  # Quality assurance
-│       ├── deterministic.py # 8 automated checks
-│       └── vision.py        # AI vision evaluation
-├── prompts/                 # YAML prompt templates
-├── palettes/                # .hex palette files
-├── docs/
-│   └── mcp-installation.md  # Setup for all MCP clients
-├── Dockerfile
-├── docker-compose.yaml
-└── pyproject.toml
+```bash
+cd website
+npm install
+npm run start
 ```
 
-## Configuration
+Key docs:
 
-All settings can be set via environment variables with `PIXEL_MAGIC_` prefix. See `.env.example` for the full list.
+- [Installation](docs/getting-started/installation.md)
+- [MCP Setup](docs/mcp/setup.md)
+- [MCP Tool Reference](docs/mcp/tool-reference.md)
+- [Runtime Architecture](docs/architecture/runtime.md)
 
-## MCP Client Setup
+## Verification
 
-See [docs/mcp-installation.md](docs/mcp-installation.md) for setup instructions for:
-- VS Code / GitHub Copilot
-- Claude Desktop
-- Claude Code
-- Codex
+Run tests:
+
+```bash
+uv run pytest -q
+```
+
+Check MCP docs coverage:
+
+```bash
+uv run python scripts/check_mcp_docs_coverage.py
+```
 
 ## License
 

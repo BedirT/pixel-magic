@@ -26,6 +26,11 @@ output/
 # uv
 uv.lock
 
+# Docusaurus
+website/node_modules/
+website/.docusaurus/
+website/build/
+
 # OS
 .DS_Store
 Thumbs.db

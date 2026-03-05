@@ -1,1 +1,1 @@
-"""Sprite generation layer — prompts, extraction, orchestration."""
+"""Generation primitives — prompt templates and frame extraction helpers."""

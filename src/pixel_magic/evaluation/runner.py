@@ -16,16 +16,14 @@ from pixel_magic.config import Settings
 from pixel_magic.evaluation.cases import EvalCase
 from pixel_magic.evaluation.judge import JudgeResult, PixelArtJudge
 from pixel_magic.generation.prompts import PromptBuilder
-from pixel_magic.models.asset import (
-    AnimationDef,
-    CharacterSpec,
-    DEFAULT_ANIMATIONS,
-    EffectSpec,
-    ItemSpec,
-    TilesetSpec,
-    UIElementSpec,
-)
 from pixel_magic.providers.base import GenerationConfig, ImageProvider
+from pixel_magic.workflow import (
+    AgentRuntime,
+    AssetType,
+    GenerationRequest,
+    ProviderAdapter,
+    WorkflowExecutor,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +131,11 @@ class EvalRunner:
         self._settings = settings
         self._judge = judge or PixelArtJudge(provider)
         self._output_dir = output_dir or settings.output_dir / "eval"
+        self._workflow_executor = WorkflowExecutor(
+            settings=settings,
+            provider=ProviderAdapter(provider, settings),
+            agents=AgentRuntime(model=settings.agent_model, api_key=settings.openai_api_key),
+        )
 
     async def run_case(
         self,
@@ -197,113 +200,55 @@ class EvalRunner:
         case: EvalCase,
         variant_label: str = "default",
     ) -> EvalRunRecord:
-        """Run a single evaluation case through the agent pipeline."""
-        from pixel_magic.agents.runner import (
-            run_character_generation,
-            run_effect_generation,
-            run_item_generation,
-            run_tileset_generation,
-            run_ui_generation,
-        )
-
-        img_dir = self._output_dir / variant_label / "images" / case.name
-        img_dir.mkdir(parents=True, exist_ok=True)
-
+        """Run a single evaluation case through the rewritten workflow executor."""
+        p = case.params
+        request = self._build_workflow_request(case)
         t0 = time.monotonic()
-        frames: list[Image.Image] = []
+        result = await self._workflow_executor.run(request)
+        gen_time = time.monotonic() - t0
 
-        try:
-            asset_type = case.asset_type
-            p = case.params
-
-            if asset_type in ("character_directions", "character_animation"):
-                spec = CharacterSpec(
-                    name=case.name,
-                    description=p.get("character_description", ""),
-                    style=p.get("style", "16-bit SNES RPG style"),
-                    resolution=p.get("resolution", "64x64"),
-                    max_colors=int(p.get("max_colors", "16")),
-                    direction_mode=4,
-                    animations=DEFAULT_ANIMATIONS,
-                )
-                clips = await run_character_generation(
-                    self._provider, self._settings, spec, img_dir,
-                )
-                for anim_clips in clips.values():
-                    for clip in anim_clips:
-                        for f in clip.frames:
-                            frames.append(f.image)
-            elif asset_type == "tileset":
-                tile_types = [t.strip() for t in p.get("tile_types", "").split(",")]
-                spec = TilesetSpec(
-                    name=case.name,
-                    biome=p.get("biome", ""),
-                    tile_types=tile_types,
-                    tile_width=int(p.get("tile_width", "64")),
-                    tile_height=int(p.get("tile_height", "32")),
-                    style=p.get("style", "16-bit isometric RPG style"),
-                    max_colors=int(p.get("max_colors", "16")),
-                )
-                assets = await run_tileset_generation(
-                    self._provider, self._settings, spec, img_dir,
-                )
-                frames = [a.image for a in assets]
-            elif asset_type == "items":
-                descriptions = [d.strip() for d in p.get("item_descriptions", "").split(",")]
-                spec = ItemSpec(
-                    descriptions=descriptions,
-                    resolution=p.get("resolution", "32x32"),
-                    style=p.get("style", "16-bit SNES RPG style"),
-                    max_colors=int(p.get("max_colors", "16")),
-                )
-                assets = await run_item_generation(
-                    self._provider, self._settings, spec, img_dir,
-                )
-                frames = [a.image for a in assets]
-            elif asset_type == "effects":
-                spec = EffectSpec(
-                    description=p.get("effect_description", ""),
-                    frame_count=int(p.get("frame_count", "6")),
-                    resolution=p.get("resolution", "64x64"),
-                    style=p.get("style", "16-bit pixel art"),
-                    max_colors=int(p.get("max_colors", "12")),
-                    color_emphasis=p.get("color_emphasis", ""),
-                )
-                clip = await run_effect_generation(
-                    self._provider, self._settings, spec, img_dir,
-                )
-                frames = [f.image for f in clip.frames]
-            elif asset_type == "ui":
-                descriptions = [d.strip() for d in p.get("element_descriptions", "").split(",")]
-                spec = UIElementSpec(
-                    descriptions=descriptions,
-                    resolution=p.get("resolution", "64x64"),
-                    style=p.get("style", "16-bit RPG UI style"),
-                    max_colors=int(p.get("max_colors", "8")),
-                )
-                assets = await run_ui_generation(
-                    self._provider, self._settings, spec, img_dir,
-                )
-                frames = [a.image for a in assets]
-            else:
-                raise ValueError(f"Unknown asset_type: {asset_type}")
-
-            gen_time = time.monotonic() - t0
-        except Exception as e:
-            logger.error("Agent generation failed for case '%s': %s", case.name, e)
+        if result.status.value != "success":
+            err_msg = result.errors[0].message if result.errors else "workflow failed"
+            logger.error("Workflow generation failed for case '%s': %s", case.name, err_msg)
             return EvalRunRecord(
                 case_name=case.name,
                 template_name=case.template_name,
                 variant_label=variant_label,
-                model_used="agent",
-                prompt_rendered="(agent mode)",
-                judge=JudgeResult(error=str(e)),
-                generation_metadata={"error": str(e), "mode": "agent"},
+                model_used=result.metrics.model if result.metrics else "agent",
+                prompt_rendered="(workflow agent mode)",
+                judge=JudgeResult(error=err_msg),
+                generation_time_s=gen_time,
+                generation_metadata={
+                    "mode": "agent",
+                    "status": result.status.value,
+                    "stage": result.stage.value,
+                    "errors": [e.model_dump(mode="json") for e in result.errors],
+                },
             )
 
-        # Judge the first frame (or a composite if multiple)
-        if frames:
-            judge_image = frames[0]
+        if result.artifacts is None:
+            return EvalRunRecord(
+                case_name=case.name,
+                template_name=case.template_name,
+                variant_label=variant_label,
+                model_used=result.metrics.model if result.metrics else "agent",
+                prompt_rendered="(workflow agent mode)",
+                judge=JudgeResult(error="missing artifacts"),
+                generation_time_s=gen_time,
+                generation_metadata={"mode": "agent", "status": result.status.value},
+            )
+
+        frame_path = ""
+        for key in sorted(result.artifacts.frame_paths):
+            paths = result.artifacts.frame_paths[key]
+            if paths:
+                frame_path = paths[0]
+                break
+
+        if not frame_path:
+            judge_result = JudgeResult(error="No frames generated")
+        else:
+            judge_image = Image.open(frame_path).convert("RGBA")
             style = p.get("style", "16-bit SNES RPG style")
             max_colors = int(p.get("max_colors", "16"))
             judge_result = await self._judge.evaluate(
@@ -311,21 +256,136 @@ class EvalRunner:
                 asset_type=case.asset_type,
                 style=style,
                 max_colors=max_colors,
-                expected_count=1,
+                expected_count=case.expected_count,
             )
-        else:
-            judge_result = JudgeResult(error="No frames generated")
+
+        prompt_rendered = "(workflow agent mode)"
+        if result.plan and result.plan.planned_prompts:
+            prompt_rendered = result.plan.planned_prompts[0].prompt
 
         return EvalRunRecord(
             case_name=case.name,
             template_name=case.template_name,
             variant_label=variant_label,
-            model_used="agent",
-            prompt_rendered="(agent mode)",
+            model_used=result.metrics.model if result.metrics else "agent",
+            prompt_rendered=prompt_rendered,
             judge=judge_result,
             generation_time_s=gen_time,
-            image_path=str(img_dir),
-            generation_metadata={"mode": "agent", "frame_count": len(frames)},
+            image_path=frame_path or result.artifacts.output_dir,
+            generation_metadata={
+                "mode": "agent",
+                "status": result.status.value,
+                "job_id": result.job_id,
+                "stage": result.stage.value,
+                "frame_count": result.artifacts.total_frames,
+                "retry_count": result.metrics.retry_count if result.metrics else 0,
+            },
+        )
+
+    @staticmethod
+    def _split_csv(raw: str) -> list[str]:
+        return [p.strip() for p in raw.split(",") if p.strip()]
+
+    def _build_workflow_request(self, case: EvalCase) -> GenerationRequest:
+        p = case.params
+        style = p.get("style", "16-bit SNES RPG style")
+        resolution = p.get("resolution", "64x64")
+        max_colors = int(p.get("max_colors", "16"))
+
+        if case.asset_type in ("character_directions", "character_animation"):
+            direction_mode = 8 if "8dir" in case.template_name else 4
+            if case.asset_type == "character_animation":
+                animation_name = p.get("animation_name", "anim")
+                frame_count = int(p.get("frame_count", "4"))
+                animations = {
+                    animation_name: {
+                        "frame_count": frame_count,
+                        "description": p.get("animation_description", animation_name),
+                    }
+                }
+            else:
+                animations = {"pose": {"frame_count": 1, "description": "single pose"}}
+
+            return GenerationRequest(
+                asset_type=AssetType.CHARACTER,
+                name=case.name,
+                objective=p.get("character_description", case.description or case.name),
+                style=style,
+                resolution=resolution,
+                max_colors=max_colors,
+                parameters={
+                    "direction_mode": direction_mode,
+                    "animations": animations,
+                },
+            )
+
+        if case.asset_type == "tileset":
+            tile_types = self._split_csv(p.get("tile_types", ""))
+            return GenerationRequest(
+                asset_type=AssetType.TILESET,
+                name=case.name,
+                objective=f"{p.get('biome', 'biome')} isometric tileset",
+                style=style,
+                resolution=f"{int(p.get('tile_width', '64'))}x{int(p.get('tile_height', '32'))}",
+                max_colors=max_colors,
+                expected_frames=max(1, len(tile_types)),
+                parameters={
+                    "tile_types": tile_types,
+                    "biome": p.get("biome", ""),
+                },
+            )
+
+        if case.asset_type == "items":
+            items = self._split_csv(p.get("item_descriptions", ""))
+            return GenerationRequest(
+                asset_type=AssetType.ITEMS,
+                name=case.name,
+                objective=f"Item icon set: {p.get('item_descriptions', '')}",
+                style=style,
+                resolution=resolution,
+                max_colors=max_colors,
+                expected_frames=max(1, len(items)),
+                parameters={"descriptions": items},
+            )
+
+        if case.asset_type == "effects":
+            frame_count = int(p.get("frame_count", "6"))
+            return GenerationRequest(
+                asset_type=AssetType.EFFECT,
+                name=case.name,
+                objective=p.get("effect_description", case.description or case.name),
+                style=style,
+                resolution=resolution,
+                max_colors=max_colors,
+                expected_frames=frame_count,
+                parameters={
+                    "frame_count": frame_count,
+                    "color_emphasis": p.get("color_emphasis", ""),
+                },
+            )
+
+        if case.asset_type == "ui":
+            elements = self._split_csv(p.get("element_descriptions", ""))
+            return GenerationRequest(
+                asset_type=AssetType.UI,
+                name=case.name,
+                objective=f"UI set: {p.get('element_descriptions', '')}",
+                style=style,
+                resolution=resolution,
+                max_colors=max_colors,
+                expected_frames=max(1, len(elements)),
+                parameters={"descriptions": elements},
+            )
+
+        return GenerationRequest(
+            asset_type=AssetType.CUSTOM,
+            name=case.name,
+            objective=case.description or case.name,
+            style=style,
+            resolution=resolution,
+            max_colors=max_colors,
+            expected_frames=max(1, case.expected_count),
+            parameters={},
         )
 
     async def run_all(
