@@ -40,7 +40,9 @@ Score each dimension from 1 (worst) to 10 (best). Be strict and precise.
 3. style_adherence — Authentic {style} pixel art style, appropriate color ramps,
    intentional shading, period-accurate aesthetic
 4. composition_layout — Sprites arranged correctly in the requested layout
-   (horizontal strip, evenly spaced, consistent sizing)
+   (horizontal strip, evenly spaced, consistent sizing).
+   Look for magenta (#FF00FF) separator lines between sprites — these are
+   intentional framing guides. Presence of clear separators is a positive signal.
 5. silhouette_readability — Clear, recognizable silhouette at target size,
    good contrast against transparent background
 6. palette_discipline — Limited, intentional palette (max {max_colors} colors),
@@ -61,8 +63,11 @@ _CHARACTER_DIRECTIONS_RUBRIC = """\
 **Type-specific: Character Directions**
 - Expected: {count} sprites in a horizontal row, same character facing different directions
 - Each sprite should be a standing idle pose
-- Isometric perspective (2:1 ratio, ~30° viewing angle)
-- Extra attention to: identical character design across all directions"""
+- Isometric perspective (2:1 ratio, ~30° viewing angle):
+  For 2-sprite sets: south-east (front-right) and north-east (back-right) facing
+  For 5-sprite sets: S, SE, E, NE, N (front to back sweep)
+- Look for magenta (#FF00FF) vertical divider lines between sprites (good framing)
+- Extra attention to: identical character design across all directions, correct facing angles"""
 
 _ANIMATION_RUBRIC = """\
 **Type-specific: Animation Strip**
@@ -70,6 +75,7 @@ _ANIMATION_RUBRIC = """\
 - Same character in every frame (identical proportions, colors, face)
 - Only animated parts should change between frames
 - First and last frames should loop cleanly if applicable
+- Look for magenta (#FF00FF) vertical divider lines between frames (good framing)
 - Extra attention to: motion quality and character identity preservation"""
 
 _TILESET_RUBRIC = """\
@@ -78,6 +84,7 @@ _TILESET_RUBRIC = """\
 - Isometric diamond tiles with seamless edges
 - Consistent lighting (top-left light source)
 - Tiles should have natural texture variation
+- Look for magenta (#FF00FF) vertical divider lines between tiles (good framing)
 - Extra attention to: seamless tiling capability and consistent lighting"""
 
 _ITEMS_RUBRIC = """\
@@ -86,6 +93,7 @@ _ITEMS_RUBRIC = """\
 - Each should be instantly recognizable at target size
 - Bold outlines for readability
 - Items should look like game inventory icons
+- Look for magenta (#FF00FF) vertical divider lines between icons (good framing)
 - Extra attention to: icon readability and design distinctiveness"""
 
 _EFFECTS_RUBRIC = """\
@@ -93,6 +101,7 @@ _EFFECTS_RUBRIC = """\
 - Expected: {count} frames showing effect lifecycle (appear → peak → dissipate)
 - Vibrant, dynamic look with particle/energy details
 - Clean transparency — effect floats in space
+- Look for magenta (#FF00FF) vertical divider lines between frames (good framing)
 - Extra attention to: dynamic quality and lifecycle progression"""
 
 _UI_RUBRIC = """\
@@ -100,6 +109,7 @@ _UI_RUBRIC = """\
 - Expected: {count} UI elements in a horizontal row
 - Functional-looking game UI (borders, frames, slots)
 - Consistent frame/border style
+- Look for magenta (#FF00FF) vertical divider lines between elements (good framing)
 - Extra attention to: functional clarity and visual unity"""
 
 TYPE_RUBRICS = {

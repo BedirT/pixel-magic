@@ -1,6 +1,7 @@
 """Effect animation prompt templates."""
 
 from pixel_magic.generation.prompt_library import register
+from pixel_magic.generation.prompt_library._shared import FRAMING_RULES
 from pixel_magic.generation.prompts import PromptTemplate
 
 register(PromptTemplate(
@@ -13,8 +14,9 @@ register(PromptTemplate(
         "at small sizes and feel dynamic."
     ),
     template=(
-        "Create a horizontal strip of exactly ${frame_count} animation frames for a pixel art "
-        "visual effect: ${effect_description}\n\n"
+        "Create a horizontal strip of exactly ${frame_count} animation frames "
+        "separated by 1px magenta (#FF00FF) vertical divider lines, "
+        "for a pixel art visual effect: ${effect_description}\n\n"
         "Frame count: exactly ${frame_count} frames\n"
         "Resolution per frame: ${resolution}\n"
         "Style: ${style}\n"
@@ -33,6 +35,7 @@ register(PromptTemplate(
         "- Each frame should be the same size\n"
         "- Use the emphasized colors prominently: ${color_emphasis}\n"
         "- Add subtle pixel particles or energy wisps for dynamism"
+        + FRAMING_RULES
     ),
     defaults={
         "effect_description": "magical spell explosion",

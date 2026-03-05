@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import Context, FastMCP
 from PIL import Image
 
 from pixel_magic.config import Settings, get_settings, reset_settings
@@ -204,7 +204,7 @@ async def _run_pipeline_on_clips(
 
 @mcp.tool()
 async def generate_character(
-    ctx,
+    ctx: Context,
     character_description: str,
     name: str = "character",
     style: str = "16-bit SNES RPG style",
@@ -214,6 +214,8 @@ async def generate_character(
     max_colors: int = 16,
     palette_name: str | None = None,
     palette_hint: str = "",
+    validate: bool = False,
+    max_retries: int = 2,
 ) -> str:
     """Generate a complete pixel art character sprite set with all directions and animations.
 
@@ -230,6 +232,8 @@ async def generate_character(
         max_colors: Maximum palette colors.
         palette_name: Name of a .hex palette file to use (e.g., "default_16").
         palette_hint: Text hint for color palette (e.g., "warm earth tones").
+        validate: If True, run an LLM check after each generation and retry on failure.
+        max_retries: Max correction retries when validate is True.
 
     Returns:
         JSON string with generation results and output file paths.
@@ -253,7 +257,7 @@ async def generate_character(
     palette = _load_palette(state.settings, palette_name)
 
     # Generate
-    clips = await state.generator.generate_character(spec)
+    clips = await state.generator.generate_character(spec, validate=validate, max_retries=max_retries)
 
     # Pipeline + export
     outputs = await _run_pipeline_on_clips(clips, state.settings, palette, name, dir_mode)
@@ -279,7 +283,7 @@ async def generate_character(
 
 @mcp.tool()
 async def add_character_animation(
-    ctx,
+    ctx: Context,
     character_name: str,
     animation_name: str,
     reference_image_path: str,
@@ -357,7 +361,7 @@ async def add_character_animation(
 
 @mcp.tool()
 async def generate_tileset(
-    ctx,
+    ctx: Context,
     biome: str,
     tile_types: list[str],
     name: str = "tileset",
@@ -366,6 +370,8 @@ async def generate_tileset(
     style: str = "16-bit isometric RPG style",
     max_colors: int = 16,
     palette_name: str | None = None,
+    validate: bool = False,
+    max_retries: int = 2,
 ) -> str:
     """Generate an isometric tileset for a biome.
 
@@ -378,6 +384,8 @@ async def generate_tileset(
         style: Pixel art style.
         max_colors: Max palette colors.
         palette_name: Optional palette file name.
+        validate: If True, run an LLM check after generation and retry on failure.
+        max_retries: Max correction retries when validate is True.
 
     Returns:
         JSON with output paths.
@@ -395,7 +403,7 @@ async def generate_tileset(
     )
 
     palette = _load_palette(state.settings, palette_name)
-    assets = await state.generator.generate_tileset(spec)
+    assets = await state.generator.generate_tileset(spec, validate=validate, max_retries=max_retries)
 
     output_dir = state.settings.output_dir / name
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -423,13 +431,15 @@ async def generate_tileset(
 
 @mcp.tool()
 async def generate_items(
-    ctx,
+    ctx: Context,
     item_descriptions: list[str],
     resolution: str = "32x32",
     style: str = "16-bit SNES RPG style",
     max_colors: int = 16,
     view: str = "front-facing icon",
     palette_name: str | None = None,
+    validate: bool = False,
+    max_retries: int = 2,
 ) -> str:
     """Generate pixel art item/pickup sprites in batch.
 
@@ -440,6 +450,8 @@ async def generate_items(
         max_colors: Max palette colors.
         view: Viewing angle/perspective.
         palette_name: Optional palette file name.
+        validate: If True, run an LLM check after generation and retry on failure.
+        max_retries: Max correction retries when validate is True.
 
     Returns:
         JSON with output paths.
@@ -454,7 +466,7 @@ async def generate_items(
         view=view,
     )
 
-    assets = await state.generator.generate_items(spec)
+    assets = await state.generator.generate_items(spec, validate=validate, max_retries=max_retries)
 
     output_dir = state.settings.output_dir / "items"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -475,13 +487,15 @@ async def generate_items(
 
 @mcp.tool()
 async def generate_effect(
-    ctx,
+    ctx: Context,
     effect_description: str,
     frame_count: int = 6,
     resolution: str = "64x64",
     style: str = "16-bit pixel art",
     max_colors: int = 12,
     color_emphasis: str = "",
+    validate: bool = False,
+    max_retries: int = 2,
 ) -> str:
     """Generate an animated pixel art visual effect (explosion, magic, etc.).
 
@@ -492,6 +506,8 @@ async def generate_effect(
         style: Pixel art style.
         max_colors: Max palette colors.
         color_emphasis: Dominant colors (e.g., "fire: orange, red, yellow").
+        validate: If True, run an LLM check after generation and retry on failure.
+        max_retries: Max correction retries when validate is True.
 
     Returns:
         JSON with output paths.
@@ -507,7 +523,7 @@ async def generate_effect(
         color_emphasis=color_emphasis,
     )
 
-    clip = await state.generator.generate_effect(spec)
+    clip = await state.generator.generate_effect(spec, validate=validate, max_retries=max_retries)
 
     output_dir = state.settings.output_dir / "effects"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -527,11 +543,13 @@ async def generate_effect(
 
 @mcp.tool()
 async def generate_ui_elements(
-    ctx,
+    ctx: Context,
     element_descriptions: list[str],
     resolution: str = "64x64",
     style: str = "16-bit RPG UI style",
     max_colors: int = 8,
+    validate: bool = False,
+    max_retries: int = 2,
 ) -> str:
     """Generate pixel art UI elements in batch.
 
@@ -540,6 +558,8 @@ async def generate_ui_elements(
         resolution: Element resolution.
         style: Pixel art style.
         max_colors: Max palette colors.
+        validate: If True, run an LLM check after generation and retry on failure.
+        max_retries: Max correction retries when validate is True.
 
     Returns:
         JSON with output paths.
@@ -553,7 +573,7 @@ async def generate_ui_elements(
         max_colors=max_colors,
     )
 
-    assets = await state.generator.generate_ui_elements(spec)
+    assets = await state.generator.generate_ui_elements(spec, validate=validate, max_retries=max_retries)
 
     output_dir = state.settings.output_dir / "ui"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -574,7 +594,7 @@ async def generate_ui_elements(
 
 @mcp.tool()
 async def generate_custom(
-    ctx,
+    ctx: Context,
     prompt: str,
     frame_count: int = 1,
     layout: str = "horizontal_strip",
@@ -619,7 +639,7 @@ async def generate_custom(
 
 @mcp.tool()
 async def convert_image(
-    ctx,
+    ctx: Context,
     image_path: str,
     target_resolution: str | None = None,
     palette_name: str | None = None,
@@ -702,7 +722,7 @@ async def convert_image(
 
 @mcp.tool()
 async def process_sprite_sheet(
-    ctx,
+    ctx: Context,
     image_path: str,
     frame_count: int | None = None,
     layout: str = "auto_detect",
@@ -768,7 +788,7 @@ async def process_sprite_sheet(
 
 @mcp.tool()
 async def extract_frames_tool(
-    ctx,
+    ctx: Context,
     image_path: str,
     frame_count: int | None = None,
     layout: str = "auto_detect",
@@ -818,7 +838,7 @@ async def extract_frames_tool(
 
 @mcp.tool()
 async def run_qa_check(
-    ctx,
+    ctx: Context,
     image_paths: list[str],
     palette_name: str | None = None,
     alpha_policy: str = "binary",
@@ -858,7 +878,7 @@ async def run_qa_check(
 
 
 @mcp.tool()
-async def list_palettes(ctx) -> str:
+async def list_palettes(ctx: Context) -> str:
     """List all available color palettes.
 
     Returns:
@@ -882,7 +902,7 @@ async def list_palettes(ctx) -> str:
 
 
 @mcp.tool()
-async def list_animations(ctx) -> str:
+async def list_animations(ctx: Context) -> str:
     """List available animation presets.
 
     Returns:
@@ -901,7 +921,7 @@ async def list_animations(ctx) -> str:
 
 
 @mcp.tool()
-async def list_prompt_templates(ctx) -> str:
+async def list_prompt_templates(ctx: Context) -> str:
     """List all available prompt templates and their parameters.
 
     Returns:
@@ -923,7 +943,7 @@ async def list_prompt_templates(ctx) -> str:
 
 
 @mcp.tool()
-async def set_provider(ctx, provider: str) -> str:
+async def set_provider(ctx: Context, provider: str) -> str:
     """Switch between AI providers.
 
     Args:
@@ -950,7 +970,7 @@ async def set_provider(ctx, provider: str) -> str:
 
 @mcp.tool()
 async def set_style_defaults(
-    ctx,
+    ctx: Context,
     direction_mode: int | None = None,
     resolution: str | None = None,
     palette_size: int | None = None,
@@ -994,7 +1014,7 @@ async def set_style_defaults(
 
 @mcp.tool()
 async def run_evaluation(
-    ctx,
+    ctx: Context,
     variant_label: str = "default",
     case_names: list[str] | None = None,
     repeats: int = 1,
@@ -1040,7 +1060,7 @@ async def run_evaluation(
 
 @mcp.tool()
 async def compare_evaluations(
-    ctx,
+    ctx: Context,
     run_paths: list[str],
 ) -> str:
     """Compare multiple evaluation runs and generate a scientific report.
@@ -1064,7 +1084,7 @@ async def compare_evaluations(
 
 
 @mcp.tool()
-async def list_eval_cases(ctx) -> str:
+async def list_eval_cases(ctx: Context) -> str:
     """List all available evaluation test cases.
 
     Returns:

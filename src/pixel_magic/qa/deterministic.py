@@ -39,8 +39,8 @@ def check_palette_compliance(
     )
     compliant = int(np.sum(dists <= tolerance))
 
-    score = compliant / total if total > 0 else 1.0
-    passed = score >= 0.99  # Allow 1% tolerance
+    score = float(compliant / total if total > 0 else 1.0)
+    passed = bool(score >= 0.99)  # Allow 1% tolerance
 
     return QACheck(
         QACheckName.PALETTE_COMPLIANCE,
@@ -64,11 +64,11 @@ def check_alpha_compliance(
     # Binary: only 0 or 255
     binary_compliant = np.sum((alpha == 0) | (alpha == 255))
     total = len(alpha)
-    score = binary_compliant / total if total > 0 else 1.0
+    score = float(binary_compliant / total if total > 0 else 1.0)
 
     return QACheck(
         QACheckName.ALPHA_COMPLIANCE,
-        score >= 0.99,
+        bool(score >= 0.99),
         score,
         f"{binary_compliant}/{total} pixels have binary alpha",
     )
@@ -97,8 +97,8 @@ def check_grid_compliance(
 
     # Intra-cell variance
     variance = np.var(cells, axis=1).mean()
-    passed = variance < 0.5  # Near-zero variance
-    score = max(0.0, 1.0 - variance / 100.0)
+    passed = bool(variance < 0.5)  # Near-zero variance
+    score = float(max(0.0, 1.0 - variance / 100.0))
 
     return QACheck(
         QACheckName.GRID_COMPLIANCE,
@@ -131,7 +131,7 @@ def check_island_noise(
     if total_regions == 0:
         return QACheck(QACheckName.ISLAND_NOISE, True, 1.0, "No opaque regions")
 
-    score = 1.0 - len(small_islands) / max(total_regions, 1)
+    score = float(1.0 - len(small_islands) / max(total_regions, 1))
 
     return QACheck(
         QACheckName.ISLAND_NOISE,
@@ -207,8 +207,8 @@ def check_palette_delta(
             min_dist = float(np.min(dists))
             max_drift = max(max_drift, min_dist)
 
-    passed = max_drift < max_delta_e / 100  # OKLab distances are typically 0-1
-    score = max(0.0, 1.0 - max_drift * 100 / max_delta_e)
+    passed = bool(max_drift < max_delta_e / 100)  # OKLab distances are typically 0-1
+    score = float(max(0.0, 1.0 - max_drift * 100 / max_delta_e))
 
     return QACheck(
         QACheckName.PALETTE_DELTA,
@@ -221,9 +221,9 @@ def check_palette_delta(
 def check_anim_flicker(clip: AnimationClip, threshold: float = 2.0) -> QACheck:
     """Check for animation flicker/jitter."""
     report = detect_jitter(clip, threshold)
-    passed = not report["jitter_detected"]
-    max_cd = report["max_centroid_drift"]
-    score = max(0.0, 1.0 - max_cd / (threshold * 3))
+    passed = bool(not report["jitter_detected"])
+    max_cd = float(report["max_centroid_drift"])
+    score = float(max(0.0, 1.0 - max_cd / (threshold * 3)))
 
     return QACheck(
         QACheckName.ANIM_FLICKER,

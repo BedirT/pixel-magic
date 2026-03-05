@@ -1,6 +1,7 @@
 """UI element prompt templates."""
 
 from pixel_magic.generation.prompt_library import register
+from pixel_magic.generation.prompt_library._shared import FRAMING_RULES
 from pixel_magic.generation.prompts import PromptTemplate
 
 register(PromptTemplate(
@@ -13,7 +14,9 @@ register(PromptTemplate(
         "UI must be readable and match an authentic 16-bit pixel art aesthetic."
     ),
     template=(
-        "Create a horizontal row of ${count} pixel art UI elements on a transparent background.\n\n"
+        "Create a horizontal row of ${count} pixel art UI elements "
+        "separated by 1px magenta (#FF00FF) vertical divider lines "
+        "on a transparent background.\n\n"
         "Elements (left to right): ${element_descriptions}\n"
         "Resolution per element: ${resolution}\n"
         "Style: ${style}\n"
@@ -30,6 +33,7 @@ register(PromptTemplate(
         "palette across all elements for visual cohesion\n"
         "- Text areas should be clearly defined (but don't render actual text)\n"
         "- Elements should look like they belong in the same game UI"
+        + FRAMING_RULES
     ),
     defaults={
         "element_descriptions": "health bar frame, mana bar frame, inventory slot",

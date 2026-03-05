@@ -8,7 +8,8 @@ Generate game-ready character sheets, tilesets, items, effects, and UI elements 
 
 - **AI Generation** — Gemini (primary) or OpenAI image generation with crafted prompt templates
 - **Full Pipeline** — Background removal → grid inference → downscale → palette quantization → cleanup → consistency → export
-- **Multi-direction Characters** — 4-dir (2 unique + flips) or 8-dir (5 unique + flips) with staggered generation
+- **Separator Framing** — Magenta (#FF00FF) divider lines in prompts enable deterministic frame extraction; graceful fallback to heuristic detection when absent
+- **Multi-direction Characters** — 4-dir (SE + NE unique, SW + NW via flips) or 8-dir (5 unique + flips) with proper isometric convention
 - **Animation Support** — Walk, run, idle, attack, death, hit, cast — or define custom animations
 - **Quality Assurance** — Deterministic checks (palette, grid, islands, flicker) + AI vision evaluation
 - **Export Formats** — PNG atlas + JSON metadata, individual PNGs, Godot SpriteFrames `.tres`, Godot TileSet `.tres`
@@ -92,9 +93,10 @@ pixel-magic/
 │   │   ├── gemini.py        # Google Gemini
 │   │   └── openai.py        # OpenAI Images API
 │   ├── generation/          # Prompt & orchestration
-│   │   ├── prompts.py       # YAML template loader
-│   │   ├── extractor.py     # Frame extraction from composites
-│   │   └── orchestrator.py  # Multi-step generation coordinator
+│   │   ├── prompts.py       # Template loader
+│   │   ├── extractor.py     # Frame extraction (separator + heuristic)
+│   │   ├── orchestrator.py  # Multi-step generation coordinator
+│   │   └── prompt_library/  # Python template modules
 │   ├── pipeline/            # Deterministic post-processing
 │   │   ├── ingest.py        # Load, normalize, bg removal
 │   │   ├── grid.py          # Grid inference

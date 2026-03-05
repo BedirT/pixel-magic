@@ -30,6 +30,7 @@ def main() -> None:
     if args.transport == "streamable-http":
         mcp.settings.host = args.host
         mcp.settings.port = args.port
+        mcp.settings.stateless_http = True
         mcp.run(transport="streamable-http")
     else:
         mcp.run(transport="stdio")

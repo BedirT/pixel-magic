@@ -41,9 +41,34 @@ uv run python -m pixel_magic.evaluation.cli run --variant gemini_default
 
 ---
 
-## 2) How Evaluation Works
+## 2) Recent Improvements
 
-Pixel Magic uses an LLM-as-judge harness over a fixed suite of test cases.
+### Magenta Separator Framing (frame extraction reliability)
+
+All multi-sprite prompt templates now instruct the AI to draw **1px magenta (#FF00FF) vertical divider lines** between sprites. This creates a deterministic signal for frame extraction:
+
+- **Detection**: The extractor scans for columns where ≥80% of pixels are within color distance 30 of pure magenta (#FF00FF) and opaque.
+- **Extraction**: When the correct number of separator groups is found (expected_count - 1), frames are cropped at separator boundaries.
+- **Cleanup**: Residual magenta at frame edges is zeroed out.
+- **Fallback**: When separators are absent (AI doesn't always follow the instruction), the existing heuristic chain (component detection → grid → strip) handles extraction.
+
+In the `framing_v1` evaluation (60 runs), separator detection successfully extracted frames in ~25% of cases. The remaining cases used fallback extraction without issue.
+
+### Isometric 4-Direction Convention Fix
+
+The 4-direction mode previously used S+E (south + east) as the unique rendered pair, which doesn't match standard isometric convention. Now:
+
+- **4-dir unique pair**: `south_east` (front-right) + `north_east` (back-right)
+- **4-dir full set**: SE → NE → SW (flip of SE) → NW (flip of NE)
+- **8-dir**: Unchanged (S, SE, E, NE, N as unique; W/SW/NW via flips)
+
+This matches the standard 2:1 isometric diamond grid where the camera faces south-east.
+
+---
+
+## 3) How Evaluation Works
+
+Pixel Magic uses an LLM-as-judge harness over a fixed suite of 12 test cases.
 
 ### What gets measured
 

@@ -31,7 +31,7 @@ class TestPromptBuilder:
             character_description="a warrior with sword and shield",
         )
         assert "warrior" in rendered
-        assert "south" in rendered.lower()
+        assert "south_east" in rendered.lower()
 
     def test_render_with_overrides(self):
         builder = PromptBuilder()

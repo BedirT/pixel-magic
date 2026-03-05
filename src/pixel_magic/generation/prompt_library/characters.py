@@ -1,6 +1,7 @@
 """Character sprite prompt templates."""
 
 from pixel_magic.generation.prompt_library import register
+from pixel_magic.generation.prompt_library._shared import FRAMING_RULES
 from pixel_magic.generation.prompts import PromptTemplate
 
 # ── Shared constants ──────────────────────────────────────────────────
@@ -28,7 +29,13 @@ _REFERENCE_SYSTEM = (
 )
 
 _ISOMETRIC_RULES = (
-    "- Use isometric perspective (2:1 ratio, ~30° viewing angle from above)\n"
+    "- Use isometric perspective (2:1 ratio diamond grid, ~30° viewing angle from above)\n"
+    "- SE (south_east) = character facing front-right toward the camera "
+    "(classic isometric front view)\n"
+    "- NE (north_east) = character facing back-right away from camera (back view)\n"
+    "- S (south) = character facing directly toward the camera\n"
+    "- E (east) = character facing right (side view)\n"
+    "- N (north) = character facing directly away from camera\n"
     "- Background MUST be fully transparent (no floor, no shadow, no background elements)\n"
     "- Pixel-perfect rendering: every edge is a hard pixel step with stepped shading, "
     "no anti-aliasing, no gradients, no blur\n"
@@ -41,10 +48,11 @@ _ISOMETRIC_RULES = (
 
 register(PromptTemplate(
     name="character_directions_4dir",
-    description="Generate 2 unique directions (S, E) of a character in one composite image",
+    description="Generate 2 unique directions (SE, NE) of a character in one composite image",
     system_context=_PIXEL_ART_SYSTEM,
     template=(
         "Create a horizontal strip of ${direction_count} pixel art character sprites "
+        "separated by 1px magenta (#FF00FF) vertical divider lines "
         "on a fully transparent background.\n"
         "Each sprite is the SAME character facing a different direction: ${direction_names}.\n\n"
         "Character: ${character_description}\n"
@@ -58,10 +66,11 @@ register(PromptTemplate(
         "- Every sprite must be the exact same character with the same proportions, colors, and design\n"
         "- Each sprite should be a standing idle pose facing the specified direction\n"
         + _ISOMETRIC_RULES
+        + FRAMING_RULES
     ),
     defaults={
         "direction_count": "2",
-        "direction_names": "south, east",
+        "direction_names": "south_east, north_east",
         "style": "16-bit SNES RPG style",
         "resolution": "64x64",
         "max_colors": "16",
@@ -78,6 +87,7 @@ register(PromptTemplate(
     system_context=_PIXEL_ART_SYSTEM,
     template=(
         "Create a horizontal strip of ${direction_count} pixel art character sprites "
+        "separated by 1px magenta (#FF00FF) vertical divider lines "
         "on a fully transparent background.\n"
         "Each sprite is the SAME character facing a different direction: ${direction_names}.\n\n"
         "Character: ${character_description}\n"
@@ -91,6 +101,7 @@ register(PromptTemplate(
         "- Every sprite must be the exact same character with the same proportions, colors, and design\n"
         "- Each sprite should be a standing idle pose facing the specified direction\n"
         + _ISOMETRIC_RULES
+        + FRAMING_RULES
     ),
     defaults={
         "direction_count": "5",
@@ -110,8 +121,9 @@ register(PromptTemplate(
     description="Generate all frames of one animation in one direction as a horizontal strip",
     system_context=_ANIMATION_SYSTEM,
     template=(
-        "Create a horizontal strip of exactly ${frame_count} animation frames showing a "
-        "pixel art character performing: ${animation_name}.\n\n"
+        "Create a horizontal strip of exactly ${frame_count} animation frames "
+        "separated by 1px magenta (#FF00FF) vertical divider lines, "
+        "showing a pixel art character performing: ${animation_name}.\n\n"
         "Character: ${character_description}\n"
         "Direction: The character is facing ${direction}\n"
         "Animation: ${animation_description}\n"
@@ -133,6 +145,7 @@ register(PromptTemplate(
         "- Unified palette of ${max_colors} or fewer colors\n"
         "- Show smooth progression of the ${animation_name} motion from start to end\n"
         "- Frame 1 and frame ${frame_count} should transition smoothly if this is a looping animation"
+        + FRAMING_RULES
     ),
     defaults={
         "animation_name": "idle",
@@ -155,7 +168,8 @@ register(PromptTemplate(
     system_context=_REFERENCE_SYSTEM,
     template=(
         "Using the provided reference image of the character, create a horizontal strip "
-        "of ${frame_count} animation frames showing: ${animation_name} — ${animation_description}.\n\n"
+        "of ${frame_count} animation frames separated by 1px magenta (#FF00FF) vertical divider lines, "
+        "showing: ${animation_name} — ${animation_description}.\n\n"
         "The character faces ${direction}.\n"
         "Frame count: ${frame_count} frames total\n"
         "Style: ${style}\n"
@@ -169,6 +183,7 @@ register(PromptTemplate(
         "- Background MUST be fully transparent\n"
         "- Clean pixel art: no anti-aliasing, crisp pixel edges\n"
         "- Show smooth motion progression for the ${animation_name} action"
+        + FRAMING_RULES
     ),
     defaults={
         "animation_name": "custom",

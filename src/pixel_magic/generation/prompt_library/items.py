@@ -1,6 +1,7 @@
 """Item sprite prompt templates."""
 
 from pixel_magic.generation.prompt_library import register
+from pixel_magic.generation.prompt_library._shared import FRAMING_RULES
 from pixel_magic.generation.prompts import PromptTemplate
 
 # ── Inventory icons ───────────────────────────────────────────────────────
@@ -56,6 +57,7 @@ register(PromptTemplate(
     ),
     template=(
         "Create a horizontal row of ${count} pixel art world-drop item sprites "
+        "separated by 1px magenta (#FF00FF) vertical divider lines "
         "on a transparent background.\n"
         "These are how items look when lying on the ground in an isometric game world.\n\n"
         "Items (left to right): ${item_descriptions}\n"
@@ -64,12 +66,13 @@ register(PromptTemplate(
         "Maximum colors: ${max_colors} total\n\n"
         "CRITICAL RULES:\n"
         "- Arrange in a single horizontal row\n"
-        "- Isometric perspective (items lying on the ground, viewed from above at ~30°)\n"
-        "- Smaller and less detailed than inventory icons — focus on silhouette readability\n"
+        "- Isometric perspective (items lying on the ground, viewed from above at ~30\u00b0)\n"
+        "- Smaller and less detailed than inventory icons \u2014 focus on silhouette readability\n"
         "- Add a subtle drop shadow or glow to help visibility on varied ground tiles\n"
         "- Background MUST be fully transparent\n"
         "- Pixel-perfect rendering: hard pixel edges, stepped shading, no anti-aliasing\n"
         "- Unified palette of ${max_colors} or fewer colors"
+        + FRAMING_RULES
     ),
     defaults={
         "item_descriptions": "iron sword, health potion, gold coin",

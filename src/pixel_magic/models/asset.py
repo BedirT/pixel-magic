@@ -33,24 +33,23 @@ class Direction(str, Enum):
     def unique_for_mode(mode: DirectionMode) -> list[Direction]:
         """Return the directions that need unique generation (rest are flipped)."""
         if mode == DirectionMode.FOUR:
-            return [Direction.S, Direction.E]
+            return [Direction.SE, Direction.NE]
         return [Direction.S, Direction.SE, Direction.E, Direction.NE, Direction.N]
 
     @staticmethod
     def flip_pairs() -> dict[Direction, Direction]:
         """Map of derived direction → source direction to flip horizontally."""
         return {
-            Direction.N: Direction.S,  # 4-dir: N flips from S
-            Direction.W: Direction.E,  # 4-dir: W flips from E
-            Direction.SW: Direction.SE,
-            Direction.NW: Direction.NE,
+            Direction.SW: Direction.SE,  # 4-dir + 8-dir
+            Direction.NW: Direction.NE,  # 4-dir + 8-dir
+            Direction.W: Direction.E,    # 8-dir only
         }
 
     @staticmethod
     def all_for_mode(mode: DirectionMode) -> list[Direction]:
         """Return all directions (unique + flipped) for a mode."""
         if mode == DirectionMode.FOUR:
-            return [Direction.S, Direction.E, Direction.N, Direction.W]
+            return [Direction.SE, Direction.NE, Direction.SW, Direction.NW]
         return list(Direction)
 
 

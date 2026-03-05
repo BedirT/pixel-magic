@@ -1,6 +1,7 @@
 """Tileset prompt templates."""
 
 from pixel_magic.generation.prompt_library import register
+from pixel_magic.generation.prompt_library._shared import FRAMING_RULES
 from pixel_magic.generation.prompts import PromptTemplate
 
 # ── Ground tiles ──────────────────────────────────────────────────────
@@ -15,7 +16,9 @@ register(PromptTemplate(
         "strictly limited, consistent color palette."
     ),
     template=(
-        "Create a horizontal row of ${count} isometric ground tiles on a transparent background.\n"
+        "Create a horizontal row of ${count} isometric ground tiles "
+        "separated by 1px magenta (#FF00FF) vertical divider lines "
+        "on a transparent background.\n"
         "Each tile is a diamond shape (isometric view, 2:1 width-to-height ratio).\n\n"
         "Biome: ${biome}\n"
         "Tile variants: ${tile_types}\n"
@@ -35,6 +38,7 @@ register(PromptTemplate(
         "- Authentic retro 16-bit rendering: flat-shaded pixel surfaces, 1-pixel outlines\n"
         "- Tiles should have subtle texture variation using pixel-level detail (tiny dots, "
         "single-pixel highlights) to avoid looking flat"
+        + FRAMING_RULES
     ),
     defaults={
         "biome": "temperate forest",
@@ -59,7 +63,9 @@ register(PromptTemplate(
         "background with hard pixel edges and stepped shading."
     ),
     template=(
-        "Create a horizontal row of ${count} isometric objects/props on a transparent background.\n\n"
+        "Create a horizontal row of ${count} isometric objects/props "
+        "separated by 1px magenta (#FF00FF) vertical divider lines "
+        "on a transparent background.\n\n"
         "Objects: ${tile_types}\n"
         "Biome context: ${biome}\n"
         "Base tile size: ${tile_width}x${tile_height} pixels\n"
@@ -73,6 +79,7 @@ register(PromptTemplate(
         "- Pixel-perfect rendering: hard pixel edges, stepped shading, no anti-aliasing\n"
         "- Unified palette of ${max_colors} or fewer colors\n"
         "- Consistent lighting (top-left)"
+        + FRAMING_RULES
     ),
     defaults={
         "biome": "temperate forest",
@@ -97,8 +104,9 @@ register(PromptTemplate(
         "background with hard pixel edges and stepped shading."
     ),
     template=(
-        "Create a horizontal row of ${count} isometric wall/elevation variants on "
-        "a transparent background.\n\n"
+        "Create a horizontal row of ${count} isometric wall/elevation variants "
+        "separated by 1px magenta (#FF00FF) vertical divider lines "
+        "on a transparent background.\n\n"
         "Wall types: ${tile_types}\n"
         "Biome context: ${biome}\n"
         "Base tile size: ${tile_width}x${tile_height} pixels\n"
@@ -112,6 +120,7 @@ register(PromptTemplate(
         "- Background MUST be fully transparent\n"
         "- Pixel-perfect rendering: hard pixel edges, stepped shading, no anti-aliasing\n"
         "- Unified palette of ${max_colors} or fewer colors"
+        + FRAMING_RULES
     ),
     defaults={
         "biome": "stone castle",

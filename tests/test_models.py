@@ -13,8 +13,8 @@ class TestDirection:
     def test_unique_4dir(self):
         dirs = Direction.unique_for_mode(DirectionMode.FOUR)
         assert len(dirs) == 2
-        assert Direction.S in dirs
-        assert Direction.E in dirs
+        assert Direction.SE in dirs
+        assert Direction.NE in dirs
 
     def test_unique_8dir(self):
         dirs = Direction.unique_for_mode(DirectionMode.EIGHT)
@@ -25,6 +25,7 @@ class TestDirection:
     def test_all_4dir(self):
         dirs = Direction.all_for_mode(DirectionMode.FOUR)
         assert len(dirs) == 4
+        assert set(dirs) == {Direction.SE, Direction.NE, Direction.SW, Direction.NW}
 
     def test_all_8dir(self):
         dirs = Direction.all_for_mode(DirectionMode.EIGHT)
@@ -34,6 +35,10 @@ class TestDirection:
         pairs = Direction.flip_pairs()
         assert Direction.W in pairs
         assert pairs[Direction.W] == Direction.E
+        assert Direction.SW in pairs
+        assert pairs[Direction.SW] == Direction.SE
+        assert Direction.NW in pairs
+        assert pairs[Direction.NW] == Direction.NE
 
 
 class TestDefaultAnimations:

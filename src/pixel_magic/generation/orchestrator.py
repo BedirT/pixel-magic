@@ -26,7 +26,12 @@ from pixel_magic.models.asset import (
     TilesetSpec,
     UIElementSpec,
 )
-from pixel_magic.providers.base import GenerationConfig, ImageProvider
+from pixel_magic.generation.validation import (
+    ValidationResult,
+    build_retry_hint,
+    validate_generation,
+)
+from pixel_magic.providers.base import GenerationConfig, GenerationResult, ImageProvider
 
 logger = logging.getLogger(__name__)
 
@@ -39,12 +44,73 @@ class SpriteGenerator:
         self._prompts = prompts
         self._settings = settings
 
+    # ── Validated generation helper ───────────────────────────────────
+
+    async def _generate_validated(
+        self,
+        prompt: str,
+        config: GenerationConfig,
+        *,
+        reference_images: list[Image.Image] | None = None,
+        validate: bool = False,
+        max_retries: int = 2,
+        expected_count: int = 1,
+        instructions_summary: str = "",
+    ) -> GenerationResult:
+        """Generate an image, optionally validating with an LLM check.
+
+        When *validate* is True the result is checked by a lightweight LLM
+        judge.  If the check fails the image is regenerated (up to
+        *max_retries* additional attempts) with corrective hints appended
+        to the prompt.
+        """
+        if reference_images:
+            result = await self._provider.generate_with_references(prompt, reference_images, config)
+        else:
+            result = await self._provider.generate(prompt, config)
+
+        if not validate:
+            return result
+
+        for attempt in range(1, max_retries + 1):
+            vr = await validate_generation(
+                self._provider,
+                result.image,
+                instructions_summary or prompt[:400],
+                expected_count,
+            )
+            if vr.passed:
+                logger.info("Validation passed on attempt %d", attempt)
+                result.metadata["validation"] = vr.to_dict()
+                return result
+
+            logger.warning(
+                "Validation failed (attempt %d/%d): %s",
+                attempt, max_retries, vr.feedback,
+            )
+            retry_hint = build_retry_hint(vr)
+            retry_prompt = f"{prompt}\n\n--- CORRECTION ---\n{retry_hint}"
+
+            if reference_images:
+                result = await self._provider.generate_with_references(
+                    retry_prompt, reference_images, config
+                )
+            else:
+                result = await self._provider.generate(retry_prompt, config)
+
+        # Final attempt — no more retries, return whatever we got
+        result.metadata["validation"] = {"passed": False, "exhausted_retries": True}
+        return result
+
     # ── Character generation ──────────────────────────────────────────
 
     async def generate_character(
         self,
         spec: CharacterSpec,
         output_dir: Path | None = None,
+        *,
+        validate: bool = False,
+        max_retries: int = 2,
     ) -> dict[str, list[AnimationClip]]:
         """Generate a complete character sprite set with all directions and animations.
 
@@ -79,7 +145,15 @@ class SpriteGenerator:
         )
 
         config = GenerationConfig(image_size=self._settings.image_size)
-        result = await self._provider.generate(prompt, config)
+        result = await self._generate_validated(
+            prompt, config,
+            validate=validate,
+            max_retries=max_retries,
+            expected_count=len(unique_dirs),
+            instructions_summary=(
+                f"{len(unique_dirs)} idle-pose direction sprites for: {spec.description}"
+            ),
+        )
 
         # Extract individual direction frames
         dir_frames = extract_frames(
@@ -110,6 +184,8 @@ class SpriteGenerator:
                     direction=direction,
                     reference_image=direction_refs[direction],
                     output_dir=out,
+                    validate=validate,
+                    max_retries=max_retries,
                 )
                 clips_for_anim.append(clip)
 
@@ -146,6 +222,8 @@ class SpriteGenerator:
         direction: Direction,
         reference_image: Image.Image,
         output_dir: Path,
+        validate: bool = False,
+        max_retries: int = 2,
     ) -> AnimationClip:
         """Generate all frames for one animation in one direction as a composite."""
         prompt = self._prompts.render(
@@ -162,8 +240,16 @@ class SpriteGenerator:
         )
 
         config = GenerationConfig(image_size=self._settings.image_size)
-        result = await self._provider.generate_with_references(
-            prompt, [reference_image], config
+        result = await self._generate_validated(
+            prompt, config,
+            reference_images=[reference_image],
+            validate=validate,
+            max_retries=max_retries,
+            expected_count=anim_def.frame_count,
+            instructions_summary=(
+                f"{anim_def.frame_count}-frame '{anim_def.name}' animation "
+                f"facing {direction.value} for: {spec.description}"
+            ),
         )
 
         # Extract frames from composite strip
@@ -264,7 +350,8 @@ class SpriteGenerator:
     # ── Tileset generation ────────────────────────────────────────────
 
     async def generate_tileset(
-        self, spec: TilesetSpec, output_dir: Path | None = None
+        self, spec: TilesetSpec, output_dir: Path | None = None,
+        *, validate: bool = False, max_retries: int = 2,
     ) -> list[SpriteAsset]:
         """Generate an isometric tileset — all tiles in one composite."""
         out = output_dir or self._settings.output_dir / "raw" / spec.name
@@ -283,7 +370,15 @@ class SpriteGenerator:
         )
 
         config = GenerationConfig(image_size=self._settings.image_size)
-        result = await self._provider.generate(prompt, config)
+        result = await self._generate_validated(
+            prompt, config,
+            validate=validate,
+            max_retries=max_retries,
+            expected_count=len(spec.tile_types),
+            instructions_summary=(
+                f"{len(spec.tile_types)} tileset tiles ({tile_types_str}) for {spec.biome}"
+            ),
+        )
         result.image.save(out / "tileset_raw.png")
 
         frames = extract_frames(
@@ -302,7 +397,8 @@ class SpriteGenerator:
     # ── Item generation ───────────────────────────────────────────────
 
     async def generate_items(
-        self, spec: ItemSpec, output_dir: Path | None = None
+        self, spec: ItemSpec, output_dir: Path | None = None,
+        *, validate: bool = False, max_retries: int = 2,
     ) -> list[SpriteAsset]:
         """Generate item icons in a single composite image."""
         out = output_dir or self._settings.output_dir / "raw" / "items"
@@ -320,7 +416,15 @@ class SpriteGenerator:
         )
 
         config = GenerationConfig(image_size=self._settings.image_size)
-        result = await self._provider.generate(prompt, config)
+        result = await self._generate_validated(
+            prompt, config,
+            validate=validate,
+            max_retries=max_retries,
+            expected_count=len(spec.descriptions),
+            instructions_summary=(
+                f"{len(spec.descriptions)} item icons: {items_str}"
+            ),
+        )
         result.image.save(out / "items_raw.png")
 
         frames = extract_frames(
@@ -340,7 +444,8 @@ class SpriteGenerator:
     # ── Effect generation ─────────────────────────────────────────────
 
     async def generate_effect(
-        self, spec: EffectSpec, output_dir: Path | None = None
+        self, spec: EffectSpec, output_dir: Path | None = None,
+        *, validate: bool = False, max_retries: int = 2,
     ) -> AnimationClip:
         """Generate an animated effect — all frames in a horizontal strip."""
         out = output_dir or self._settings.output_dir / "raw" / "effects"
@@ -357,7 +462,15 @@ class SpriteGenerator:
         )
 
         config = GenerationConfig(image_size=self._settings.image_size)
-        result = await self._provider.generate(prompt, config)
+        result = await self._generate_validated(
+            prompt, config,
+            validate=validate,
+            max_retries=max_retries,
+            expected_count=spec.frame_count,
+            instructions_summary=(
+                f"{spec.frame_count}-frame effect: {spec.description}"
+            ),
+        )
         result.image.save(out / "effect_raw.png")
 
         frames = extract_frames(
@@ -382,7 +495,8 @@ class SpriteGenerator:
     # ── UI generation ─────────────────────────────────────────────────
 
     async def generate_ui_elements(
-        self, spec: UIElementSpec, output_dir: Path | None = None
+        self, spec: UIElementSpec, output_dir: Path | None = None,
+        *, validate: bool = False, max_retries: int = 2,
     ) -> list[SpriteAsset]:
         """Generate UI elements in a single composite."""
         out = output_dir or self._settings.output_dir / "raw" / "ui"
@@ -399,7 +513,15 @@ class SpriteGenerator:
         )
 
         config = GenerationConfig(image_size=self._settings.image_size)
-        result = await self._provider.generate(prompt, config)
+        result = await self._generate_validated(
+            prompt, config,
+            validate=validate,
+            max_retries=max_retries,
+            expected_count=len(spec.descriptions),
+            instructions_summary=(
+                f"{len(spec.descriptions)} UI elements: {elements_str}"
+            ),
+        )
         result.image.save(out / "ui_raw.png")
 
         frames = extract_frames(
