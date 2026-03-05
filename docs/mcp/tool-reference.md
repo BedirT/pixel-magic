@@ -2,777 +2,585 @@
 title: MCP Tool Reference
 ---
 
-# MCP Tool Reference
+This page is the authoritative MCP surface for `src/pixel_magic/server.py`.
 
-All tools return JSON strings. Generation tools return a **workflow job envelope** (see [Common Response Shape](#common-response-shape) below). Pipeline and utility tools return simpler, tool-specific JSON.
+## Response Conventions
 
----
+- All tools return a string payload.
+- Most tools return JSON strings.
+- `compare_evaluations` returns a Markdown string (report body).
+- File paths are local filesystem paths on the server host.
 
-## Common Response Shape
+## Generation Envelope (All Generation Tools)
 
-All generation tools (`generate_character`, `generate_tileset`, `generate_items`, `generate_effect`, `generate_ui_elements`, `generate_custom`, `extend_character_animation`) return this envelope:
+These tools return the workflow `JobResult` envelope plus helper fields:
+
+- `generate_character`
+- `extend_character_animation`
+- `generate_tileset`
+- `generate_items`
+- `generate_effect`
+- `generate_ui_elements`
+- `generate_custom`
+
+### Success Shape
 
 ```json
 {
   "status": "success",
-  "job_id": "7f3a21b4",
+  "job_id": "b1c2d3",
   "stage": "finalize",
+  "request": {
+    "asset_type": "character",
+    "name": "knight",
+    "objective": "A knight in silver armor",
+    "style": "16-bit SNES RPG style",
+    "resolution": "64x64",
+    "max_colors": 16,
+    "expected_frames": 1,
+    "layout": "horizontal_strip",
+    "parameters": {}
+  },
   "plan": {
     "asset_type": "character",
-    "animations": { "idle": { "frame_count": 4 }, "walk": { "frame_count": 6 } },
-    "directions": ["south", "east", "north", "west"]
-  },
-  "deterministic_gate": {
-    "passed": true,
-    "checks": [
-      { "name": "alpha_compliance", "passed": true },
-      { "name": "frame_count_match", "passed": true },
-      { "name": "palette_size", "passed": true }
-    ]
-  },
-  "final_validation": {
-    "decision": "pass",
-    "notes": "Frames are consistent, palette is compliant"
+    "expected_total_frames": 20,
+    "planned_prompts": [],
+    "qa_min_score": 0.7,
+    "notes": "..."
   },
   "artifacts": {
     "output_dir": "output/knight",
-    "atlas_path": "output/knight/atlas.png",
-    "metadata_path": "output/knight/metadata.json",
-    "frame_paths": {
-      "idle_south": ["output/knight/idle_south_000.png", "output/knight/idle_south_001.png"],
-      "walk_south": ["output/knight/walk_south_000.png", "..."]
-    },
-    "total_frames": 32
+    "atlas_path": "output/knight/knight_atlas.png",
+    "metadata_path": "output/knight/knight_metadata.json",
+    "raw_paths": {},
+    "frame_paths": {},
+    "total_frames": 20
   },
-  "output_paths": ["output/knight/idle_south_000.png", "..."],
-  "output_dir": "output/knight",
-  "trace": [
-    { "stage": "input_validate", "duration_ms": 2 },
-    { "stage": "route", "duration_ms": 340 },
-    { "stage": "plan", "duration_ms": 890 }
-  ],
+  "deterministic_gate": {
+    "passed": true,
+    "checks": [],
+    "failure_reasons": []
+  },
+  "final_validation": {
+    "decision": "pass",
+    "overall_score": 0.88,
+    "critical_issues": [],
+    "retry_instructions": "",
+    "confidence": 0.84,
+    "notes": ""
+  },
   "metrics": {
-    "generation_calls": 4,
+    "provider": "gemini",
+    "model": "gemini-2.5-flash-image-preview",
+    "total_generation_calls": 6,
     "retry_count": 0,
-    "duration_ms": 12400
-  }
+    "duration_s": 8.91
+  },
+  "warnings": [],
+  "errors": [],
+  "trace": [],
+  "output_paths": ["output/knight/walk_south_east_000.png"],
+  "output_dir": "output/knight"
 }
 ```
 
-**Key fields:**
-
-| Field | Type | Description |
-|---|---|---|
-| `status` | string | `"success"` or `"error"` |
-| `job_id` | string | Unique identifier for this generation run |
-| `output_paths` | array | Flat list of all output PNG file paths (most useful for downstream pipelines) |
-| `output_dir` | string | Directory containing all outputs |
-| `artifacts.atlas_path` | string | Single PNG atlas combining all frames |
-| `artifacts.metadata_path` | string | JSON file with frame dims, animation names, durations |
-| `artifacts.frame_paths` | object | Frame paths grouped by animation+direction key |
-| `deterministic_gate.passed` | boolean | Whether the QA gate passed |
-| `final_validation.decision` | string | `"pass"`, `"retry"`, or `"fail"` |
-
-**On error**, the response looks like:
+### Failure Shape
 
 ```json
 {
-  "status": "error",
-  "job_id": "7f3a21b4",
+  "status": "failed",
+  "job_id": "b1c2d3",
   "stage": "deterministic_gate",
   "errors": [
     {
       "code": "QA_FAILED",
+      "message": "Deterministic QA gate failed",
       "stage": "deterministic_gate",
-      "details": { "failed_checks": ["alpha_compliance"] }
+      "details": {
+        "failed_checks": ["alpha_compliance: 3800/4096 pixels have binary alpha"]
+      }
     }
-  ]
+  ],
+  "trace": []
 }
 ```
-
-See [Error Codes](#error-codes) at the bottom of this page.
-
----
 
 ## Generation Tools
 
 ### `generate_character`
 
-Generates a complete pixel art character sprite set with all directional views and animations. By default produces idle and walk animations in 4 directions.
+Generate a full character sprite set (directions + animations).
 
-**Parameters:**
+**Request fields**
 
-| Parameter | Type | Default | Description |
+| Field | Type | Required | Default |
 |---|---|---|---|
-| `character_description` | string | **required** | Detailed visual description of the character |
-| `name` | string | `"character"` | Name used for the output directory and file prefix |
-| `style` | string | `"16-bit SNES RPG style"` | Art style description passed to the image model |
-| `direction_mode` | integer | `4` | `4` generates south/east/north/west (with flips); `8` adds SE, NE diagonals |
-| `animations` | object | idle + walk | Map of animation name to preset name or definition (see below) |
-| `resolution` | string | `"64x64"` | Per-frame resolution as `"WxH"` |
-| `max_colors` | integer | `16` | Maximum palette colors per frame |
-| `palette_name` | string | `null` | Name of a `.hex` palette file (see `list_palettes`). Enforces strict palette compliance |
-| `palette_hint` | string | `""` | Color hint text for the model (e.g., `"warm earth tones, avoid blue"`) |
+| `character_description` | string | yes | - |
+| `name` | string | no | `"character"` |
+| `style` | string | no | `"16-bit SNES RPG style"` |
+| `direction_mode` | integer | no | `4` |
+| `animations` | object | no | `{}` |
+| `resolution` | string `WxH` | no | `"64x64"` |
+| `max_colors` | integer | no | `16` |
+| `palette_name` | string | no | `null` |
+| `palette_hint` | string | no | `""` |
 
-**The `animations` parameter** accepts a map where each key is an animation name and the value is either:
+**Success response example**
 
-- A preset name string (e.g., `"idle"`, `"walk"`, `"attack"`, `"run"`, `"hurt"`, `"death"`) — use `list_animations` to see all presets
-- An inline definition object:
+Uses the generation envelope. Character runs usually contain multiple animation/direction frame groups under `artifacts.frame_paths`.
 
-```json
-{
-  "fishing": {
-    "frame_count": 6,
-    "description": "Character casts a fishing rod, waits, then reels in",
-    "duration_ms": 150,
-    "is_looping": true
-  }
-}
-```
-
-**Example — minimal:**
+**Failure example**
 
 ```json
 {
-  "character_description": "A young female knight in silver plate armor with a red cape",
-  "name": "knight"
+  "status": "failed",
+  "stage": "final_validator_agent",
+  "errors": [{"code": "VALIDATOR_FAILED", "message": "Final validator rejected output"}]
 }
 ```
-
-**Example — full control:**
-
-```json
-{
-  "character_description": "A cloaked dark mage with glowing purple runes on his robes, skeletal hands, staff topped with a skull",
-  "name": "dark_mage",
-  "style": "16-bit SNES RPG style, dark fantasy",
-  "direction_mode": 4,
-  "resolution": "64x64",
-  "max_colors": 16,
-  "palette_name": "twilight_16",
-  "palette_hint": "dark purples, bone whites, sickly green accents",
-  "animations": {
-    "idle": "idle",
-    "walk": "walk",
-    "cast": {
-      "frame_count": 8,
-      "description": "Mage raises staff, runes flash, energy ball launches forward",
-      "duration_ms": 100,
-      "is_looping": false
-    }
-  }
-}
-```
-
-**Output:** PNG files per frame in `output/<name>/`, plus `atlas.png` and `metadata.json`.
-
----
 
 ### `extend_character_animation`
 
-Adds a new animation to an existing character by providing a reference sprite image. The new animation is generated to visually match the reference character design.
+Generate a new animation for an existing character using a reference image.
 
-Use this when you already have a character sprite set and want to add more animations (e.g., you generated idle+walk and now want a fishing or swimming animation).
+**Request fields**
 
-**Parameters:**
-
-| Parameter | Type | Default | Description |
+| Field | Type | Required | Default |
 |---|---|---|---|
-| `character_name` | string | **required** | Name identifying the character (for metadata and output naming) |
-| `animation_name` | string | **required** | Name of the new animation (e.g., `"fishing"`, `"swim"`, `"jump"`) |
-| `reference_image_path` | string | **required** | Absolute or relative path to an existing sprite image of this character |
-| `frame_count` | integer | `4` | Number of frames for the new animation |
-| `description` | string | `""` | Motion description for the new animation |
-| `duration_ms` | integer | `100` | Duration per frame in milliseconds |
-| `is_looping` | boolean | `true` | Whether the animation loops |
-| `direction_mode` | integer | `4` | `4` or `8` directional generation |
-| `style` | string | `"16-bit SNES RPG style"` | Art style (should match the original character's style) |
-| `resolution` | string | `"64x64"` | Per-frame resolution (should match the original character) |
-| `max_colors` | integer | `16` | Max palette colors |
-| `palette_name` | string | `null` | Named palette (should match the original if one was used) |
+| `character_name` | string | yes | - |
+| `animation_name` | string | yes | - |
+| `reference_image_path` | string path | yes | - |
+| `frame_count` | integer | no | `4` |
+| `description` | string | no | `""` |
+| `duration_ms` | integer | no | `100` |
+| `is_looping` | boolean | no | `true` |
+| `direction_mode` | integer | no | `4` |
+| `style` | string | no | `"16-bit SNES RPG style"` |
+| `resolution` | string `WxH` | no | `"64x64"` |
+| `max_colors` | integer | no | `16` |
+| `palette_name` | string | no | `null` |
 
-**Important:** `reference_image_path` must point to an existing readable file. The pipeline validates this at input stage and fails immediately if the file is missing.
+**Success response example**
 
-**Example:**
+Uses the generation envelope. Output folder is deterministic: `<character_name>_<animation_name>`.
+
+**Failure example**
 
 ```json
 {
-  "character_name": "knight",
-  "animation_name": "fishing",
-  "reference_image_path": "/path/to/output/knight/idle_south_000.png",
-  "frame_count": 6,
-  "description": "Knight holds a fishing rod, casts the line, waits, then pulls back",
-  "duration_ms": 150,
-  "is_looping": true,
-  "direction_mode": 4,
-  "style": "16-bit SNES RPG style",
-  "resolution": "64x64",
-  "max_colors": 16
+  "status": "failed",
+  "stage": "input_validate",
+  "errors": [
+    {
+      "code": "INVALID_INPUT",
+      "message": "Reference image path does not exist",
+      "details": {"path": "/tmp/missing_ref.png"}
+    }
+  ]
 }
 ```
-
-**Output:** New animation frames in `output/<character_name>_<animation_name>/`.
-
----
 
 ### `generate_tileset`
 
-Generates isometric tile sprites for a set of tile types in a given biome. Each tile type becomes a separate PNG output.
+Generate an isometric tileset batch.
 
-**Parameters:**
+**Request fields**
 
-| Parameter | Type | Default | Description |
+| Field | Type | Required | Default |
 |---|---|---|---|
-| `biome` | string | **required** | Environment type (e.g., `"forest"`, `"desert"`, `"snow"`, `"dungeon"`, `"underwater"`) |
-| `tile_types` | array of strings | **required** | List of tile variants to generate |
-| `name` | string | `"tileset"` | Output name prefix |
-| `tile_width` | integer | `64` | Tile width in pixels |
-| `tile_height` | integer | `32` | Tile height in pixels (32 gives standard 2:1 isometric ratio) |
-| `style` | string | `"16-bit isometric RPG style"` | Art style |
-| `max_colors` | integer | `16` | Max palette colors |
-| `palette_name` | string | `null` | Named palette for consistency across tiles |
+| `biome` | string | yes | - |
+| `tile_types` | array[string] | yes | - |
+| `name` | string | no | `"tileset"` |
+| `tile_width` | integer | no | `64` |
+| `tile_height` | integer | no | `32` |
+| `style` | string | no | `"16-bit isometric RPG style"` |
+| `max_colors` | integer | no | `16` |
+| `palette_name` | string | no | `null` |
 
-**Example — forest biome:**
+**Success response example**
 
-```json
-{
-  "biome": "forest",
-  "tile_types": ["grass", "dirt path", "stone", "water", "flower patch", "tree base"],
-  "name": "forest",
-  "tile_width": 64,
-  "tile_height": 32,
-  "style": "16-bit isometric RPG, lush green tones",
-  "max_colors": 16
-}
-```
+Uses the generation envelope. `artifacts.total_frames` typically matches `len(tile_types)`.
 
-**Example — dungeon biome with shared palette:**
+**Failure example**
 
 ```json
 {
-  "biome": "dungeon",
-  "tile_types": ["stone floor", "cracked stone floor", "stone wall", "dirt", "lava pool"],
-  "name": "dungeon",
-  "tile_width": 64,
-  "tile_height": 32,
-  "style": "dark dungeon crawler, gritty",
-  "max_colors": 12,
-  "palette_name": "dungeon_12"
+  "status": "failed",
+  "stage": "generate",
+  "errors": [{"code": "PROVIDER_ERROR", "message": "Image generation failed"}]
 }
 ```
-
-**Tip:** Use a `palette_name` when generating multiple tilesets that will appear in the same scene. This ensures consistent colors across all tile types.
-
----
 
 ### `generate_items`
 
-Generates a batch of item icon sprites in one call. Each item in the list becomes a separate PNG.
+Generate a batch of item icons.
 
-**Parameters:**
+**Request fields**
 
-| Parameter | Type | Default | Description |
+| Field | Type | Required | Default |
 |---|---|---|---|
-| `item_descriptions` | array of strings | **required** | Descriptions of each item to generate |
-| `resolution` | string | `"32x32"` | Icon resolution (items typically use smaller sizes than characters) |
-| `style` | string | `"16-bit SNES RPG style"` | Art style |
-| `max_colors` | integer | `16` | Max palette colors per item |
-| `view` | string | `"front-facing icon"` | Viewing angle (e.g., `"top-down"`, `"isometric"`, `"side view"`) |
-| `palette_name` | string | `null` | Named palette |
+| `item_descriptions` | array[string] | yes | - |
+| `resolution` | string `WxH` | no | `"32x32"` |
+| `style` | string | no | `"16-bit SNES RPG style"` |
+| `max_colors` | integer | no | `16` |
+| `view` | string | no | `"front-facing icon"` |
+| `palette_name` | string | no | `null` |
 
-**Example — RPG item batch:**
+**Success response example**
 
-```json
-{
-  "item_descriptions": [
-    "rusty iron sword with a leather-wrapped handle",
-    "small red glass health potion with a cork stopper",
-    "ancient skeleton key with ornate handle",
-    "wooden shield with a painted red cross",
-    "silver ring with a glowing blue gemstone"
-  ],
-  "resolution": "32x32",
-  "style": "16-bit SNES RPG style",
-  "max_colors": 16
-}
-```
+Uses the generation envelope.
 
-**Example — top-down view for inventory grid:**
+**Failure example**
 
 ```json
 {
-  "item_descriptions": ["loaf of bread", "raw fish", "apple", "cheese wedge"],
-  "resolution": "16x16",
-  "style": "8-bit NES style",
-  "max_colors": 8,
-  "view": "top-down icon"
+  "status": "failed",
+  "stage": "deterministic_gate",
+  "errors": [{"code": "QA_FAILED", "message": "Deterministic QA gate failed"}]
 }
 ```
-
-**Output:** One PNG per item in `output/items/`. The `output_paths` array in the response is ordered to match the `item_descriptions` input order.
-
----
 
 ### `generate_effect`
 
-Generates an animated pixel art visual effect as a sequence of frames.
+Generate an animated effect sprite sequence.
 
-**Parameters:**
+**Request fields**
 
-| Parameter | Type | Default | Description |
+| Field | Type | Required | Default |
 |---|---|---|---|
-| `effect_description` | string | **required** | Description of the visual effect |
-| `frame_count` | integer | `6` | Number of animation frames |
-| `resolution` | string | `"64x64"` | Frame resolution |
-| `style` | string | `"16-bit pixel art"` | Art style |
-| `max_colors` | integer | `12` | Max palette colors (effects often need fewer colors for clarity) |
-| `color_emphasis` | string | `""` | Comma-separated dominant color guidance (e.g., `"fire: orange, red, yellow"`) |
+| `effect_description` | string | yes | - |
+| `frame_count` | integer | no | `6` |
+| `resolution` | string `WxH` | no | `"64x64"` |
+| `style` | string | no | `"16-bit pixel art"` |
+| `max_colors` | integer | no | `12` |
+| `color_emphasis` | string | no | `""` |
 
-**Example — explosion:**
+**Success response example**
 
-```json
-{
-  "effect_description": "Medium explosion with a bright flash, expanding fireball, and smoke dissipating",
-  "frame_count": 8,
-  "resolution": "64x64",
-  "style": "16-bit pixel art",
-  "max_colors": 12,
-  "color_emphasis": "orange, red, yellow, black smoke, white flash center"
-}
-```
+Uses the generation envelope.
 
-**Example — magic heal:**
+**Failure example**
 
 ```json
 {
-  "effect_description": "Holy healing effect: soft golden light rays emanating upward with sparkle particles",
-  "frame_count": 6,
-  "resolution": "48x64",
-  "style": "16-bit SNES RPG style",
-  "max_colors": 8,
-  "color_emphasis": "gold, white, pale yellow"
+  "status": "failed",
+  "stage": "extract",
+  "errors": [{"code": "EXTRACTION_MISMATCH", "message": "Extracted frame count mismatch"}]
 }
 ```
-
-**Example — ice projectile:**
-
-```json
-{
-  "effect_description": "Ice shard projectile flying right with a trailing frost mist",
-  "frame_count": 4,
-  "resolution": "32x32",
-  "style": "16-bit pixel art",
-  "max_colors": 10
-}
-```
-
----
 
 ### `generate_ui_elements`
 
-Generates a batch of pixel art UI element sprites. Useful for health bars, buttons, dialog boxes, HUD elements, and other interface components.
+Generate a batch of UI sprites.
 
-**Parameters:**
+**Request fields**
 
-| Parameter | Type | Default | Description |
+| Field | Type | Required | Default |
 |---|---|---|---|
-| `element_descriptions` | array of strings | **required** | Descriptions of each UI element to generate |
-| `resolution` | string | `"64x64"` | Element resolution |
-| `style` | string | `"16-bit RPG UI style"` | Art style |
-| `max_colors` | integer | `8` | Max palette colors (UI elements typically use fewer colors) |
+| `element_descriptions` | array[string] | yes | - |
+| `resolution` | string `WxH` | no | `"64x64"` |
+| `style` | string | no | `"16-bit RPG UI style"` |
+| `max_colors` | integer | no | `8` |
 
-**Example — RPG HUD elements:**
+**Success response example**
 
-```json
-{
-  "element_descriptions": [
-    "heart icon for health display",
-    "empty heart outline",
-    "stamina bar segment (filled)",
-    "stamina bar segment (empty)",
-    "small sword icon for attack stat",
-    "small shield icon for defense stat"
-  ],
-  "resolution": "16x16",
-  "style": "16-bit RPG HUD style, clean and readable",
-  "max_colors": 6
-}
-```
+Uses the generation envelope.
 
-**Example — dialog box components:**
+**Failure example**
 
 ```json
 {
-  "element_descriptions": [
-    "dialog box top-left corner piece",
-    "dialog box top edge tile",
-    "dialog box top-right corner piece",
-    "dialog box left edge tile",
-    "dialog box background fill",
-    "dialog box right edge tile"
-  ],
-  "resolution": "16x16",
-  "style": "classic JRPG dialog box, dark blue border with gold trim",
-  "max_colors": 8
+  "status": "failed",
+  "stage": "generate",
+  "errors": [{"code": "TIMEOUT", "message": "Workflow timed out"}]
 }
 ```
-
----
 
 ### `generate_custom`
 
-Generates pixel art from a completely freeform prompt. Use this for anything that doesn't fit the structured generation tools — backgrounds, logos, map icons, decorative elements, etc.
+Generate from a freeform prompt.
 
-**Parameters:**
+**Request fields**
 
-| Parameter | Type | Default | Description |
+| Field | Type | Required | Default |
 |---|---|---|---|
-| `prompt` | string | **required** | Your full generation prompt |
-| `frame_count` | integer | `1` | Number of frames to extract from the generated image |
-| `layout` | string | `"horizontal_strip"` | How frames are arranged: `horizontal_strip`, `vertical_strip`, `grid`, `auto_detect` |
+| `prompt` | string | yes | - |
+| `frame_count` | integer | no | `1` |
+| `layout` | string | no | `"horizontal_strip"` |
 
-**Example — single background:**
+Allowed `layout` values: `horizontal_strip`, `vertical_strip`, `grid`, `auto_detect`.
 
-```json
-{
-  "prompt": "16-bit pixel art forest clearing background, tall pine trees on sides, moonlit clearing in center, stars visible, suitable for RPG battle scene, 256x144 resolution",
-  "frame_count": 1,
-  "layout": "horizontal_strip"
-}
-```
+**Success response example**
 
-**Example — animated coin:**
+Uses the generation envelope.
+
+**Failure example**
 
 ```json
 {
-  "prompt": "Gold coin rotation animation, 4 frames showing front face, 3/4 view, edge-on, 3/4 view other side, 16x16 pixel art, classic RPG style, horizontal strip layout",
-  "frame_count": 4,
-  "layout": "horizontal_strip"
+  "status": "failed",
+  "stage": "plan",
+  "errors": [{"code": "PLAN_INVALID", "message": "Planner returned no prompts"}]
 }
 ```
-
-**Note:** The model generates a single composite image and the pipeline extracts `frame_count` frames from it. For multi-frame results, describe the layout clearly in your prompt (e.g., "horizontal strip of 4 frames").
-
----
 
 ## Pipeline Tools
 
 ### `convert_image`
 
-Converts any image through the pixel art post-processing pipeline: grid inference, palette quantization, and cleanup. Use this to turn photographs, high-res art, or AI-generated images into clean pixel art sprites.
+Convert one image through ingest, grid inference, projection, quantization, and cleanup.
 
-**Parameters:**
+**Request fields**
 
-| Parameter | Type | Default | Description |
+| Field | Type | Required | Default |
 |---|---|---|---|
-| `image_path` | string | **required** | Path to the input image |
-| `target_resolution` | string | `null` | Optional output resolution as `"WxH"`. If omitted, resolution is inferred from the image |
-| `palette_name` | string | `null` | Named palette to quantize to |
-| `max_colors` | integer | `16` | Colors for adaptive palette (used when no `palette_name` is given) |
-| `alpha_policy` | string | `"binary"` | `"binary"` — pixels are fully opaque or fully transparent; `"keep8bit"` — preserve partial transparency |
-| `remove_bg` | boolean | `false` | Remove solid-color background before processing |
+| `image_path` | string path | yes | - |
+| `target_resolution` | string `WxH` | no | `null` |
+| `palette_name` | string | no | `null` |
+| `max_colors` | integer | no | `16` |
+| `alpha_policy` | string | no | `"binary"` |
+| `remove_bg` | boolean | no | `false` |
 
-**Example:**
-
-```json
-{
-  "image_path": "/path/to/character_concept.png",
-  "target_resolution": "64x64",
-  "max_colors": 16,
-  "alpha_policy": "binary",
-  "remove_bg": true
-}
-```
-
-**Response:**
+**Success response example**
 
 ```json
 {
   "status": "success",
-  "output_path": "output/converted/character_concept_pixel.png",
-  "grid": { "macro_size": 2, "confidence": 0.94 },
-  "palette_size": 14,
+  "output_path": "output/converted/hero_pixel.png",
+  "grid": {"macro_size": 1, "confidence": 0.97},
+  "palette_size": 16,
   "resolution": "64x64"
 }
 ```
 
----
+**Failure example**
+
+This tool raises an MCP error (exception), not a workflow failure envelope.
+
+```text
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/missing.png'
+```
 
 ### `process_sprite_sheet`
 
-Takes an existing sprite sheet (multiple frames in one image) and runs it through frame extraction, palette quantization, cleanup, and QA. Useful for cleaning up or re-paletting existing sprite sheets.
+Extract, normalize, quantize, clean, and QA an existing sprite sheet.
 
-**Parameters:**
+**Request fields**
 
-| Parameter | Type | Default | Description |
+| Field | Type | Required | Default |
 |---|---|---|---|
-| `image_path` | string | **required** | Path to the sprite sheet image |
-| `frame_count` | integer | `null` | Expected number of frames. Helps guide extraction when layout is ambiguous |
-| `layout` | string | `"auto_detect"` | Frame arrangement: `auto_detect`, `horizontal_strip`, `vertical_strip`, `grid` |
-| `palette_name` | string | `null` | Named palette to quantize all frames to |
-| `max_colors` | integer | `16` | Colors for adaptive palette |
-| `name` | string | `"sheet"` | Output name prefix for exported frames |
+| `image_path` | string path | yes | - |
+| `frame_count` | integer | no | `null` |
+| `layout` | string | no | `"auto_detect"` |
+| `palette_name` | string | no | `null` |
+| `max_colors` | integer | no | `16` |
+| `name` | string | no | `"sheet"` |
 
-**Example:**
-
-```json
-{
-  "image_path": "/path/to/walk_animation.png",
-  "frame_count": 8,
-  "layout": "horizontal_strip",
-  "max_colors": 16,
-  "name": "character_walk"
-}
-```
-
-**Response:**
+**Success response example**
 
 ```json
 {
   "status": "success",
-  "frame_count": 8,
-  "output_paths": [
-    "output/character_walk/character_walk_000.png",
-    "output/character_walk/character_walk_001.png"
-  ],
+  "frame_count": 6,
+  "output_paths": ["output/sheet/sheet_000.png"],
   "qa": {
     "passed": true,
     "checks": [
-      { "name": "alpha_compliance", "passed": true },
-      { "name": "palette_size", "passed": true, "value": 14 }
+      {"name": "alpha_compliance", "passed": true, "score": 1.0, "details": "..."}
     ]
   }
 }
 ```
 
----
+**Failure example**
+
+```text
+ValueError: 'diagonal_strip' is not a valid CompositeLayout
+```
 
 ### `extract_frames_tool`
 
-Extracts individual frames from a composite image without any post-processing. Useful when you just need to split a sprite sheet into frame files.
+Extract frames from a composite image and save each frame.
 
-**Parameters:**
+**Request fields**
 
-| Parameter | Type | Default | Description |
+| Field | Type | Required | Default |
 |---|---|---|---|
-| `image_path` | string | **required** | Path to the composite image |
-| `frame_count` | integer | `null` | Expected frame count (helps guide extraction) |
-| `layout` | string | `"auto_detect"` | Frame arrangement: `auto_detect`, `horizontal_strip`, `vertical_strip`, `grid` |
+| `image_path` | string path | yes | - |
+| `frame_count` | integer | no | `null` |
+| `layout` | string | no | `"auto_detect"` |
 
-**Example:**
-
-```json
-{
-  "image_path": "/path/to/effects_sheet.png",
-  "frame_count": 6,
-  "layout": "horizontal_strip"
-}
-```
-
-**Response:**
+**Success response example**
 
 ```json
 {
   "status": "success",
-  "frame_count": 6,
+  "frame_count": 4,
   "output_paths": [
     "output/extracted/frame_000.png",
-    "output/extracted/frame_001.png",
-    "output/extracted/frame_002.png",
-    "output/extracted/frame_003.png",
-    "output/extracted/frame_004.png",
-    "output/extracted/frame_005.png"
+    "output/extracted/frame_001.png"
   ]
 }
 ```
 
----
+**Failure example**
+
+```text
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/missing_sheet.png'
+```
 
 ## QA Tool
 
 ### `run_qa_check`
 
-Runs QA checks on one or more sprite images. Checks alpha compliance, palette size, and frame consistency. Optionally runs AI vision QA for deeper quality assessment.
+Run deterministic QA checks, and optional vision QA, on image paths.
 
-**Parameters:**
+**Request fields**
 
-| Parameter | Type | Default | Description |
+| Field | Type | Required | Default |
 |---|---|---|---|
-| `image_paths` | array of strings | **required** | Paths to the images to check |
-| `palette_name` | string | `null` | Named palette to check compliance against |
-| `alpha_policy` | string | `"binary"` | `"binary"` or `"keep8bit"` |
-| `run_vision` | boolean | `false` | Run AI vision QA in addition to deterministic checks. Costs API credits |
+| `image_paths` | array[string] | yes | - |
+| `palette_name` | string | no | `null` |
+| `alpha_policy` | string | no | `"binary"` |
+| `run_vision` | boolean | no | `false` |
 
-**Example:**
+`run_vision` only adds vision checks when server config `qa_vision_enabled=true`.
 
-```json
-{
-  "image_paths": [
-    "output/knight/idle_south_000.png",
-    "output/knight/idle_south_001.png",
-    "output/knight/idle_south_002.png"
-  ],
-  "palette_name": "default_16",
-  "alpha_policy": "binary",
-  "run_vision": false
-}
-```
-
-**Response:**
+**Success response example**
 
 ```json
 {
   "passed": true,
   "checks": [
-    { "name": "alpha_compliance", "passed": true },
-    { "name": "palette_compliance", "passed": true, "palette": "default_16" },
-    { "name": "palette_size", "passed": true, "value": 12, "max": 16 },
-    { "name": "frame_consistency", "passed": true }
+    {"name": "alpha_compliance", "passed": true, "score": 1.0, "details": "..."},
+    {"name": "frame_size_consistency", "passed": true, "score": 1.0, "details": "..."}
   ]
 }
 ```
 
----
+**Failure example**
+
+```text
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/missing_frame.png'
+```
 
 ## Utility Tools
 
 ### `list_palettes`
 
-Lists all available named palettes with a color preview.
+List `.hex` palettes available under the configured palettes directory.
 
-**Parameters:** None
+**Request fields**
 
-**Example response:**
+None.
+
+**Success response example**
 
 ```json
 [
   {
     "name": "default_16",
     "size": 16,
-    "colors": ["#1a1a2e", "#16213e", "#0f3460", "#533483", "#e94560", "#ff6b6b", "#ffd93d", "#6bcb77"],
+    "colors": ["#000000", "#ffffff"],
     "path": "palettes/default_16.hex"
-  },
-  {
-    "name": "gameboy",
-    "size": 4,
-    "colors": ["#0f380f", "#306230", "#8bac0f", "#9bbc0f"],
-    "path": "palettes/gameboy.hex"
   }
 ]
 ```
 
-Use the `name` field value as the `palette_name` parameter in generation tools.
+**Failure example**
 
----
+```text
+ValueError: Invalid HEX color at line 3 in palette file
+```
 
 ### `list_animations`
 
-Lists all built-in animation presets that can be used as shorthand in the `generate_character` `animations` parameter.
+List built-in animation presets.
 
-**Parameters:** None
+**Request fields**
 
-**Example response:**
+None.
+
+**Success response example**
 
 ```json
 {
   "idle": {
     "frame_count": 4,
-    "description": "Gentle breathing idle stance",
+    "description": "...",
     "duration_ms": 150,
     "is_looping": true
-  },
-  "walk": {
-    "frame_count": 6,
-    "description": "Standard walking cycle",
-    "duration_ms": 100,
-    "is_looping": true
-  },
-  "attack": {
-    "frame_count": 6,
-    "description": "Basic melee attack swing",
-    "duration_ms": 80,
-    "is_looping": false
-  },
-  "hurt": {
-    "frame_count": 3,
-    "description": "Damage recoil reaction",
-    "duration_ms": 120,
-    "is_looping": false
-  },
-  "death": {
-    "frame_count": 6,
-    "description": "Collapse and fade",
-    "duration_ms": 120,
-    "is_looping": false
   }
 }
 ```
 
----
+**Failure example**
+
+No tool-specific failure payload. Unexpected runtime errors surface as MCP exception text.
 
 ### `list_prompt_templates`
 
-Lists all internal prompt templates used by the pipeline, along with their parameters.
+List prompt templates and parameter names.
 
-**Parameters:** None
+**Request fields**
 
-**Response:** Array of template objects with `name`, `description`, `parameters`, and `reference_strategy` fields. Primarily useful for debugging and understanding how prompts are constructed.
+None.
 
----
+**Success response example**
+
+```json
+[
+  {
+    "name": "character_directions_4dir",
+    "description": "...",
+    "parameters": ["character_description", "style"],
+    "reference_strategy": "none"
+  }
+]
+```
+
+**Failure example**
+
+No tool-specific failure payload. Unexpected runtime errors surface as MCP exception text.
 
 ### `set_provider`
 
-Switches the active AI image provider at runtime without restarting the server.
+Switch active provider at runtime and rebuild provider/agent/executor state.
 
-**Parameters:**
+**Request fields**
 
-| Parameter | Type | Required | Description |
+| Field | Type | Required | Default |
 |---|---|---|---|
-| `provider` | string | yes | `"gemini"` or `"openai"` |
+| `provider` | string | yes | - |
 
-**Example:**
+Allowed values: `gemini`, `openai`.
 
-```json
-{ "provider": "openai" }
-```
-
-**Response:**
+**Success response example**
 
 ```json
-{ "status": "success", "provider": "openai" }
+{"status": "success", "provider": "openai"}
 ```
 
-This recreates the provider adapter, agent runtime, and workflow executor in-process. All subsequent generation calls use the new provider until switched again or the server restarts.
+**Failure example**
 
----
+```json
+{"error": "Unknown provider: foo. Use 'gemini' or 'openai'."}
+```
 
 ### `set_style_defaults`
 
-Sets default style parameters applied to all future generation calls in this session. Useful to avoid repeating the same parameters on every call.
+Update default style settings for the running server process.
 
-**Parameters:**
+**Request fields**
 
-| Parameter | Type | Default | Description |
+| Field | Type | Required | Default |
 |---|---|---|---|
-| `direction_mode` | integer | — | `4` or `8` — sets the default for character generation |
-| `resolution` | string | — | Default resolution (e.g., `"64x64"`) |
-| `palette_size` | integer | — | Default max palette colors |
-| `alpha_policy` | string | — | `"binary"` or `"keep8bit"` |
+| `direction_mode` | integer | no | unchanged |
+| `resolution` | string `WxH` | no | unchanged |
+| `palette_size` | integer | no | unchanged |
+| `alpha_policy` | string | no | unchanged |
 
-All parameters are optional. Only the ones you provide are updated.
-
-**Example — set project-wide defaults before a session:**
-
-```json
-{
-  "direction_mode": 4,
-  "resolution": "64x64",
-  "palette_size": 16,
-  "alpha_policy": "binary"
-}
-```
-
-**Response:**
+**Success response example**
 
 ```json
 {
@@ -784,123 +592,117 @@ All parameters are optional. Only the ones you provide are updated.
 }
 ```
 
----
+**Failure example**
+
+No tool-specific failure payload. Invalid values can cause downstream generation failures later.
 
 ## Evaluation Tools
 
 ### `run_evaluation`
 
-Runs the built-in offline evaluation suite. Generates pixel art for each test case and scores the results using an LLM-as-a-Judge. Results are saved to `output/eval/<variant_label>/results.json`.
+Run offline evaluation cases and aggregate LLM-as-a-Judge results.
 
-This is not a production gate — it's for regression testing and provider comparison.
+LLM-as-a-Judge is offline regression tooling, not a separate production gate.
 
-**Parameters:**
+**Request fields**
 
-| Parameter | Type | Default | Description |
+| Field | Type | Required | Default |
 |---|---|---|---|
-| `variant_label` | string | `"default"` | Label for this run (e.g., `"gemini_v1"`, `"openai_baseline"`) |
-| `case_names` | array of strings | `null` | Run specific cases by name. Runs all cases if omitted |
-| `repeats` | integer | `1` | Repeat each case N times for statistical significance |
-| `mode` | string | `"direct"` | `"direct"` uses PromptBuilder+provider (fast); `"agent"` runs the full workflow pipeline |
+| `variant_label` | string | no | `"default"` |
+| `case_names` | array[string] | no | `null` |
+| `repeats` | integer | no | `1` |
+| `mode` | string | no | `"direct"` |
 
-**Example — baseline run:**
+`mode` values: `direct` or `agent` (`agent` runs the workflow executor).
 
-```json
-{
-  "variant_label": "gemini_baseline",
-  "repeats": 1,
-  "mode": "direct"
-}
-```
-
-**Example — targeted agent-mode evaluation:**
-
-```json
-{
-  "variant_label": "openai_agent_v2",
-  "case_names": ["character_knight", "tileset_forest", "items_weapons"],
-  "repeats": 3,
-  "mode": "agent"
-}
-```
-
-**Response:**
+**Success response example**
 
 ```json
 {
   "status": "success",
-  "variant": "gemini_baseline",
+  "variant": "baseline",
   "total_cases": 12,
-  "errors": 0,
-  "overall_mean": 0.847,
+  "errors": 1,
+  "overall_mean": 0.842,
   "overall_pass_rate": 0.917,
-  "dimensions": {
-    "pixel_art_quality": 0.88,
-    "style_consistency": 0.83,
-    "animation_smoothness": 0.82,
-    "palette_compliance": 0.96
-  },
-  "results_path": "output/eval/gemini_baseline/results.json"
+  "dimensions": {"overall": 0.842},
+  "results_path": "output/eval/baseline/results.json"
 }
 ```
 
----
+**Failure example**
+
+When generation/judging fails per case, this tool usually still returns `status: success` with increased `errors` count. Hard runtime exceptions surface as MCP exception text.
 
 ### `compare_evaluations`
 
-Compares two or more evaluation runs and generates a statistical comparison report in Markdown.
+Compare multiple evaluation result files and return a Markdown report.
 
-**Parameters:**
+**Request fields**
 
-| Parameter | Type | Required | Description |
+| Field | Type | Required | Default |
 |---|---|---|---|
-| `run_paths` | array of strings | yes | Paths to `results.json` files from previous `run_evaluation` calls |
+| `run_paths` | array[string] | yes | - |
 
-**Example:**
+**Success response example**
 
-```json
-{
-  "run_paths": [
-    "output/eval/gemini_baseline/results.json",
-    "output/eval/openai_baseline/results.json"
-  ]
-}
+```md
+# Evaluation Comparison
+
+## Summary
+- Run A overall: 0.81
+- Run B overall: 0.85
+
+## Dimension Comparison
+| Dimension | Run A | Run B | Delta |
+|---|---:|---:|---:|
+| overall | 0.81 | 0.85 | +0.04 |
 ```
 
-**Response:** A Markdown report with per-dimension score tables, statistical significance notes, and a winner declaration per dimension. The report is also saved to `output/eval/comparison/`.
+**Failure example**
 
----
+```text
+FileNotFoundError: [Errno 2] No such file or directory: 'output/eval/missing/results.json'
+```
 
 ### `list_eval_cases`
 
-Lists all built-in test cases for the evaluation suite.
+List built-in evaluation test cases.
 
-**Parameters:** None
+**Request fields**
 
-**Response:** Array of test case objects, each with `name`, `asset_type`, `description`, and evaluation rubric parameters.
+None.
 
----
+**Success response example**
 
-## Error Codes
+```json
+[
+  {
+    "name": "warrior_4dir",
+    "template_name": "character_directions_4dir",
+    "asset_type": "character_directions",
+    "params": {"resolution": "64x64"},
+    "expected_count": 2
+  }
+]
+```
 
-When a generation fails, the `errors` array in the response contains one or more objects with these fields:
+**Failure example**
 
-| Field | Description |
-|---|---|
-| `code` | Machine-readable error code (see table below) |
-| `stage` | Workflow stage where the failure occurred |
-| `details` | Structured, stage-specific context about the failure |
+No tool-specific failure payload. Unexpected runtime errors surface as MCP exception text.
+
+## Generation Error Codes
+
+These `errors[].code` values are used in generation-tool failure envelopes:
 
 | Code | Stage | Meaning |
 |---|---|---|
-| `INVALID_INPUT` | `input_validate` | A required parameter is missing or invalid (e.g., `reference_image_path` doesn't exist) |
-| `PLAN_INVALID` | `plan` | The agent produced a malformed generation plan |
-| `PROVIDER_ERROR` | `generate` | The AI provider returned an error (API key issue, quota exceeded, transient failure) |
-| `EXTRACTION_MISMATCH` | `extract` | Frame extraction produced a different count than expected |
-| `QA_FAILED` | `deterministic_gate` | Frames failed alpha, palette, or frame count checks after the retry budget was spent |
-| `VALIDATOR_FAILED` | `final_validator_agent` | The validator agent returned `fail` or `retry` after the retry budget was exhausted |
-| `EXPORT_FAILED` | `export` | File write failed (permissions, disk space) |
-| `TIMEOUT` | any | Pipeline exceeded the allowed duration |
-| `INTERNAL_ERROR` | any | Unexpected internal failure |
-
-See [Troubleshooting](../troubleshooting/common-issues.md) for solutions to the most common errors.
+| `INVALID_INPUT` | `input_validate` | Input is invalid (for example missing reference image). |
+| `PLAN_INVALID` | `plan` | Planner output was invalid or empty. |
+| `PROVIDER_ERROR` | `generate` | Provider call failed. |
+| `EXTRACTION_MISMATCH` | `extract` | Extracted frame count/shape mismatch. |
+| `QA_FAILED` | `deterministic_gate` | Deterministic QA hard gate failed. |
+| `VALIDATOR_FAILED` | `final_validator_agent` | Final validator failed or retry budget exhausted. |
+| `EXPORT_FAILED` | `export` | Asset export failed. |
+| `TIMEOUT` | any | Workflow timed out. |
+| `INTERNAL_ERROR` | any | Internal execution failure. |
