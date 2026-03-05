@@ -8,6 +8,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 from PIL import Image
 
@@ -15,6 +16,15 @@ from pixel_magic.config import Settings
 from pixel_magic.evaluation.cases import EvalCase
 from pixel_magic.evaluation.judge import JudgeResult, PixelArtJudge
 from pixel_magic.generation.prompts import PromptBuilder
+from pixel_magic.models.asset import (
+    AnimationDef,
+    CharacterSpec,
+    DEFAULT_ANIMATIONS,
+    EffectSpec,
+    ItemSpec,
+    TilesetSpec,
+    UIElementSpec,
+)
 from pixel_magic.providers.base import GenerationConfig, ImageProvider
 
 logger = logging.getLogger(__name__)
@@ -182,12 +192,149 @@ class EvalRunner:
             generation_metadata=result.metadata,
         )
 
+    async def run_case_agent(
+        self,
+        case: EvalCase,
+        variant_label: str = "default",
+    ) -> EvalRunRecord:
+        """Run a single evaluation case through the agent pipeline."""
+        from pixel_magic.agents.runner import (
+            run_character_generation,
+            run_effect_generation,
+            run_item_generation,
+            run_tileset_generation,
+            run_ui_generation,
+        )
+
+        img_dir = self._output_dir / variant_label / "images" / case.name
+        img_dir.mkdir(parents=True, exist_ok=True)
+
+        t0 = time.monotonic()
+        frames: list[Image.Image] = []
+
+        try:
+            asset_type = case.asset_type
+            p = case.params
+
+            if asset_type in ("character_directions", "character_animation"):
+                spec = CharacterSpec(
+                    name=case.name,
+                    description=p.get("character_description", ""),
+                    style=p.get("style", "16-bit SNES RPG style"),
+                    resolution=p.get("resolution", "64x64"),
+                    max_colors=int(p.get("max_colors", "16")),
+                    direction_mode=4,
+                    animations=DEFAULT_ANIMATIONS,
+                )
+                clips = await run_character_generation(
+                    self._provider, self._settings, spec, img_dir,
+                )
+                for anim_clips in clips.values():
+                    for clip in anim_clips:
+                        for f in clip.frames:
+                            frames.append(f.image)
+            elif asset_type == "tileset":
+                tile_types = [t.strip() for t in p.get("tile_types", "").split(",")]
+                spec = TilesetSpec(
+                    name=case.name,
+                    biome=p.get("biome", ""),
+                    tile_types=tile_types,
+                    tile_width=int(p.get("tile_width", "64")),
+                    tile_height=int(p.get("tile_height", "32")),
+                    style=p.get("style", "16-bit isometric RPG style"),
+                    max_colors=int(p.get("max_colors", "16")),
+                )
+                assets = await run_tileset_generation(
+                    self._provider, self._settings, spec, img_dir,
+                )
+                frames = [a.image for a in assets]
+            elif asset_type == "items":
+                descriptions = [d.strip() for d in p.get("item_descriptions", "").split(",")]
+                spec = ItemSpec(
+                    descriptions=descriptions,
+                    resolution=p.get("resolution", "32x32"),
+                    style=p.get("style", "16-bit SNES RPG style"),
+                    max_colors=int(p.get("max_colors", "16")),
+                )
+                assets = await run_item_generation(
+                    self._provider, self._settings, spec, img_dir,
+                )
+                frames = [a.image for a in assets]
+            elif asset_type == "effects":
+                spec = EffectSpec(
+                    description=p.get("effect_description", ""),
+                    frame_count=int(p.get("frame_count", "6")),
+                    resolution=p.get("resolution", "64x64"),
+                    style=p.get("style", "16-bit pixel art"),
+                    max_colors=int(p.get("max_colors", "12")),
+                    color_emphasis=p.get("color_emphasis", ""),
+                )
+                clip = await run_effect_generation(
+                    self._provider, self._settings, spec, img_dir,
+                )
+                frames = [f.image for f in clip.frames]
+            elif asset_type == "ui":
+                descriptions = [d.strip() for d in p.get("element_descriptions", "").split(",")]
+                spec = UIElementSpec(
+                    descriptions=descriptions,
+                    resolution=p.get("resolution", "64x64"),
+                    style=p.get("style", "16-bit RPG UI style"),
+                    max_colors=int(p.get("max_colors", "8")),
+                )
+                assets = await run_ui_generation(
+                    self._provider, self._settings, spec, img_dir,
+                )
+                frames = [a.image for a in assets]
+            else:
+                raise ValueError(f"Unknown asset_type: {asset_type}")
+
+            gen_time = time.monotonic() - t0
+        except Exception as e:
+            logger.error("Agent generation failed for case '%s': %s", case.name, e)
+            return EvalRunRecord(
+                case_name=case.name,
+                template_name=case.template_name,
+                variant_label=variant_label,
+                model_used="agent",
+                prompt_rendered="(agent mode)",
+                judge=JudgeResult(error=str(e)),
+                generation_metadata={"error": str(e), "mode": "agent"},
+            )
+
+        # Judge the first frame (or a composite if multiple)
+        if frames:
+            judge_image = frames[0]
+            style = p.get("style", "16-bit SNES RPG style")
+            max_colors = int(p.get("max_colors", "16"))
+            judge_result = await self._judge.evaluate(
+                judge_image,
+                asset_type=case.asset_type,
+                style=style,
+                max_colors=max_colors,
+                expected_count=1,
+            )
+        else:
+            judge_result = JudgeResult(error="No frames generated")
+
+        return EvalRunRecord(
+            case_name=case.name,
+            template_name=case.template_name,
+            variant_label=variant_label,
+            model_used="agent",
+            prompt_rendered="(agent mode)",
+            judge=judge_result,
+            generation_time_s=gen_time,
+            image_path=str(img_dir),
+            generation_metadata={"mode": "agent", "frame_count": len(frames)},
+        )
+
     async def run_all(
         self,
         cases: list[EvalCase],
         variant_label: str = "default",
         repeats: int = 1,
         concurrency: int = 1,
+        mode: Literal["direct", "agent"] = "direct",
     ) -> EvalRun:
         """Run all cases (optionally repeated) and return an EvalRun.
 
@@ -196,6 +343,7 @@ class EvalRunner:
             variant_label: Label for this run.
             repeats: Number of times to repeat each case.
             concurrency: Max parallel generations (1 = sequential).
+            mode: "direct" uses PromptBuilder+provider, "agent" uses the full agent pipeline.
         """
         run = EvalRun(
             variant_label=variant_label,
@@ -213,14 +361,16 @@ class EvalRunner:
 
         total = len(tasks)
 
+        run_fn = self.run_case_agent if mode == "agent" else self.run_case
+
         if concurrency <= 1:
             # Sequential (original behaviour)
             for idx, case, repeat_idx in tasks:
                 logger.info(
-                    "[%d/%d] Evaluating case '%s' (repeat %d)",
-                    idx + 1, total, case.name, repeat_idx + 1,
+                    "[%d/%d] Evaluating case '%s' (repeat %d, mode=%s)",
+                    idx + 1, total, case.name, repeat_idx + 1, mode,
                 )
-                record = await self.run_case(case, variant_label)
+                record = await run_fn(case, variant_label)
                 run.records.append(record)
                 self._log_record(record)
         else:
@@ -236,7 +386,7 @@ class EvalRunner:
                         "[started] case '%s' (repeat %d) — %d/%d queued",
                         case.name, repeat_idx + 1, idx + 1, total,
                     )
-                    record = await self.run_case(case, variant_label)
+                    record = await run_fn(case, variant_label)
                     completed += 1
                     logger.info(
                         "[%d/%d done] case '%s'", completed, total, case.name,

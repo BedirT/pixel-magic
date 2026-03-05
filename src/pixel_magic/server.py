@@ -77,6 +77,10 @@ class AppState:
 @asynccontextmanager
 async def lifespan(server: FastMCP):
     """Initialize provider and shared state on startup."""
+    from pixel_magic.tracing import init_tracing
+
+    init_tracing()
+
     settings = get_settings()
     state = AppState(settings)
     try:
@@ -1018,6 +1022,7 @@ async def run_evaluation(
     variant_label: str = "default",
     case_names: list[str] | None = None,
     repeats: int = 1,
+    mode: str = "direct",
 ) -> str:
     """Run the LLM-as-judge evaluation on standard test cases.
 
@@ -1028,6 +1033,7 @@ async def run_evaluation(
         variant_label: Label for this evaluation run (e.g., "gemini_v1", "openai_baseline").
         case_names: Optional list of specific case names to run. Runs all if omitted.
         repeats: Number of times to repeat each case (for statistical significance).
+        mode: "direct" uses PromptBuilder+provider (fast), "agent" uses the full agent pipeline.
 
     Returns:
         JSON summary with per-case scores and aggregate statistics.
@@ -1043,7 +1049,10 @@ async def run_evaluation(
     if case_names:
         cases = [c for c in cases if c.name in case_names]
 
-    run = await runner.run_all(cases, variant_label=variant_label, repeats=repeats)
+    eval_mode = "agent" if mode == "agent" else "direct"
+    run = await runner.run_all(
+        cases, variant_label=variant_label, repeats=repeats, mode=eval_mode,
+    )
     agg = aggregate_results(run.results, variant_label)
 
     return json.dumps({

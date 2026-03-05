@@ -17,11 +17,14 @@ from pixel_magic.providers.base import (
     Session,
 )
 
+from pixel_magic.tracing import get_tracer
+
 logger = logging.getLogger(__name__)
+_tracer = get_tracer("pixel_magic.providers.gemini")
 
 # Retry config
 MAX_RETRIES = 3
-BASE_DELAY = 1.0
+BASE_DELAY = 5.0
 RETRY_STATUS_CODES = {429, 500, 503}
 DEFAULT_FALLBACK_IMAGE_MODEL = "gemini-2.5-flash-image"
 DEFAULT_FALLBACK_TIMEOUT_S = 120.0
@@ -116,81 +119,113 @@ class GeminiProvider(ImageProvider):
     ) -> GenerationResult:
         from google.genai import types
 
-        contents: list = []
-        if references:
-            for ref in references:
-                img_bytes = _image_to_bytes(ref)
-                contents.append(types.Part.from_bytes(data=img_bytes, mime_type="image/png"))
-        contents.append(prompt)
+        with _tracer.start_as_current_span("gemini.generate_image") as span:
+            span.set_attribute("llm.prompt_length", len(prompt))
+            span.set_attribute("llm.has_references", bool(references))
 
-        gen_config = types.GenerateContentConfig(
-            response_modalities=["IMAGE"],
-        )
-        primary_model = self._image_model
-        fallback_model = self._fallback_image_model
-        can_fallback = (
-            self._enable_fallback
-            and bool(fallback_model)
-            and fallback_model != primary_model
-        )
+            contents: list = []
+            if references:
+                for ref in references:
+                    img_bytes = _image_to_bytes(ref)
+                    contents.append(types.Part.from_bytes(data=img_bytes, mime_type="image/png"))
+                span.set_attribute("llm.reference_count", len(references))
+            contents.append(prompt)
 
-        try:
-            response = await self._generate_with_retries(
-                model_name=primary_model,
-                contents=contents,
-                gen_config=gen_config,
-                timeout_budget_s=self._fallback_after_seconds if can_fallback else None,
+            gen_config = types.GenerateContentConfig(
+                response_modalities=["IMAGE"],
             )
-            metadata = _extract_gemini_metadata(response, primary_model)
-            if can_fallback:
+            primary_model = self._image_model
+            fallback_model = self._fallback_image_model
+            can_fallback = (
+                self._enable_fallback
+                and bool(fallback_model)
+                and fallback_model != primary_model
+            )
+            span.set_attribute("llm.model", primary_model)
+
+            try:
+                t0 = time.monotonic()
+                response = await self._generate_with_retries(
+                    model_name=primary_model,
+                    contents=contents,
+                    gen_config=gen_config,
+                    timeout_budget_s=self._fallback_after_seconds if can_fallback else None,
+                )
+                span.set_attribute("llm.duration_s", round(time.monotonic() - t0, 2))
+                span.set_attribute("llm.fallback_used", False)
+
+                metadata = _extract_gemini_metadata(response, primary_model)
+                if can_fallback:
+                    metadata["fallback"] = {
+                        "enabled": True,
+                        "used": False,
+                        "primary_model": primary_model,
+                        "fallback_model": fallback_model,
+                        "timeout_s": self._fallback_after_seconds,
+                    }
+                # Record token usage on span
+                for k, v in metadata.get("usage", {}).items():
+                    span.set_attribute(f"llm.usage.{k}", v)
+
+                image = _extract_image(response)
+                span.set_attribute("llm.output_size", f"{image.width}x{image.height}")
+                return GenerationResult(
+                    image=image,
+                    prompt_used=prompt,
+                    model_used=primary_model,
+                    metadata=metadata,
+                )
+            except Exception as primary_error:
+                if not can_fallback:
+                    span.set_attribute("error", True)
+                    span.set_attribute("error.message", str(primary_error))
+                    raise
+
+                span.add_event("fallback_triggered", {
+                    "primary_error": str(primary_error),
+                    "fallback_model": fallback_model,
+                })
+
+                logger.warning(
+                    "Primary Gemini image model '%s' failed or timed out (%s). "
+                    "Falling back to '%s'.",
+                    primary_model,
+                    primary_error,
+                    fallback_model,
+                )
+
+                span.set_attribute("llm.model", fallback_model)
+                span.set_attribute("llm.fallback_used", True)
+
+                t0 = time.monotonic()
+                response = await self._generate_with_retries(
+                    model_name=fallback_model,
+                    contents=contents,
+                    gen_config=gen_config,
+                    timeout_budget_s=None,
+                )
+                span.set_attribute("llm.duration_s", round(time.monotonic() - t0, 2))
+
+                metadata = _extract_gemini_metadata(response, fallback_model)
                 metadata["fallback"] = {
                     "enabled": True,
-                    "used": False,
+                    "used": True,
                     "primary_model": primary_model,
                     "fallback_model": fallback_model,
                     "timeout_s": self._fallback_after_seconds,
+                    "primary_error": str(primary_error),
                 }
-            image = _extract_image(response)
-            return GenerationResult(
-                image=image,
-                prompt_used=prompt,
-                model_used=primary_model,
-                metadata=metadata,
-            )
-        except Exception as primary_error:
-            if not can_fallback:
-                raise
+                for k, v in metadata.get("usage", {}).items():
+                    span.set_attribute(f"llm.usage.{k}", v)
 
-            logger.warning(
-                "Primary Gemini image model '%s' failed or timed out (%s). "
-                "Falling back to '%s'.",
-                primary_model,
-                primary_error,
-                fallback_model,
-            )
-
-            response = await self._generate_with_retries(
-                model_name=fallback_model,
-                contents=contents,
-                gen_config=gen_config,
-                timeout_budget_s=None,
-            )
-            metadata = _extract_gemini_metadata(response, fallback_model)
-            metadata["fallback"] = {
-                "enabled": True,
-                "used": True,
-                "primary_model": primary_model,
-                "fallback_model": fallback_model,
-                "timeout_s": self._fallback_after_seconds,
-                "primary_error": str(primary_error),
-            }
-            image = _extract_image(response)
-            return GenerationResult(
-                image=image,
-                prompt_used=prompt,
-                model_used=fallback_model,
-                metadata=metadata,
-            )
+                image = _extract_image(response)
+                span.set_attribute("llm.output_size", f"{image.width}x{image.height}")
+                return GenerationResult(
+                    image=image,
+                    prompt_used=prompt,
+                    model_used=fallback_model,
+                    metadata=metadata,
+                )
 
     async def _generate_with_retries(
         self,
@@ -248,6 +283,16 @@ class GeminiProvider(ImageProvider):
                     e,
                     delay,
                 )
+                # Record retry event on current span
+                from opentelemetry import trace as _trace
+                current_span = _trace.get_current_span()
+                if current_span.is_recording():
+                    current_span.add_event("retry", {
+                        "attempt": attempt + 1,
+                        "error": str(e),
+                        "delay_s": delay,
+                        "model": model_name,
+                    })
                 await asyncio.sleep(delay)
 
         raise RuntimeError("Gemini generation failed after all retries")

@@ -19,7 +19,11 @@ RUN uv pip install --system --no-cache \
     "numpy>=1.26.0" \
     "pydantic>=2.6.0" \
     "pydantic-settings>=2.2.0" \
-    "pyyaml>=6.0"
+    "pyyaml>=6.0" \
+    "openai-agents>=0.1.0" \
+    "opentelemetry-sdk>=1.21.0" \
+    "opentelemetry-exporter-otlp-proto-http>=0.42.0" \
+    "openinference-instrumentation-openai>=0.1.0"
 
 # Copy source code
 COPY src/ src/
@@ -38,7 +42,7 @@ ENV PIXEL_MAGIC_OUTPUT_DIR=/app/output
 ENV PIXEL_MAGIC_PROMPTS_DIR=/app/prompts
 ENV PIXEL_MAGIC_PALETTES_DIR=/app/palettes
 
-EXPOSE 8000
+EXPOSE 5363
 
 ENTRYPOINT ["pixel-magic"]
 CMD ["--transport", "stdio"]

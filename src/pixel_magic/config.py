@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-image-1"
     openai_quality: Literal["low", "medium", "high"] = "medium"
 
+    # Agent settings (reasoning model for multi-agent system)
+    agent_model: str = "gpt-5-mini"  # "gpt-5-mini" or "gpt-5.3"
+
     # Generation defaults
     direction_mode: int = Field(default=4)
     image_size: str = "1024x1024"
