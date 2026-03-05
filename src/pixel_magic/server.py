@@ -6,6 +6,7 @@ import json
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Literal
 
 from mcp.server.fastmcp import Context, FastMCP
 from PIL import Image
@@ -132,7 +133,7 @@ async def generate_character(
     character_description: str,
     name: str = "character",
     style: str = "16-bit SNES RPG style",
-    direction_mode: int = 4,
+    direction_mode: Literal[4, 8] = 4,
     animations: dict | None = None,
     resolution: str = "64x64",
     max_colors: int = 16,
@@ -187,7 +188,7 @@ async def extend_character_animation(
     description: str = "",
     duration_ms: int = 100,
     is_looping: bool = True,
-    direction_mode: int = 4,
+    direction_mode: Literal[4, 8] = 4,
     style: str = "16-bit SNES RPG style",
     resolution: str = "64x64",
     max_colors: int = 16,
@@ -416,7 +417,7 @@ async def generate_custom(
     ctx: Context,
     prompt: str,
     frame_count: int = 1,
-    layout: str = "horizontal_strip",
+    layout: Literal["horizontal_strip", "vertical_strip", "grid", "auto_detect"] = "horizontal_strip",
 ) -> str:
     """Generate pixel art from a custom freeform prompt.
 
@@ -457,7 +458,7 @@ async def convert_image(
     target_resolution: str | None = None,
     palette_name: str | None = None,
     max_colors: int = 16,
-    alpha_policy: str = "binary",
+    alpha_policy: Literal["binary", "keep8bit"] = "binary",
     remove_bg: bool = False,
 ) -> str:
     """Convert any image through the pixel art pipeline.
@@ -539,7 +540,7 @@ async def process_sprite_sheet(
     ctx: Context,
     image_path: str,
     frame_count: int | None = None,
-    layout: str = "auto_detect",
+    layout: Literal["horizontal_strip", "vertical_strip", "grid", "auto_detect"] = "auto_detect",
     palette_name: str | None = None,
     max_colors: int = 16,
     name: str = "sheet",
@@ -605,7 +606,7 @@ async def extract_frames_tool(
     ctx: Context,
     image_path: str,
     frame_count: int | None = None,
-    layout: str = "auto_detect",
+    layout: Literal["horizontal_strip", "vertical_strip", "grid", "auto_detect"] = "auto_detect",
 ) -> str:
     """Extract individual frames from a composite/sheet image.
 
@@ -655,7 +656,7 @@ async def run_qa_check(
     ctx: Context,
     image_paths: list[str],
     palette_name: str | None = None,
-    alpha_policy: str = "binary",
+    alpha_policy: Literal["binary", "keep8bit"] = "binary",
     run_vision: bool = False,
 ) -> str:
     """Run QA checks on one or more sprite images.
@@ -757,7 +758,7 @@ async def list_prompt_templates(ctx: Context) -> str:
 
 
 @mcp.tool()
-async def set_provider(ctx: Context, provider: str) -> str:
+async def set_provider(ctx: Context, provider: Literal["gemini", "openai"]) -> str:
     """Switch between AI providers.
 
     Args:
@@ -794,10 +795,10 @@ async def set_provider(ctx: Context, provider: str) -> str:
 @mcp.tool()
 async def set_style_defaults(
     ctx: Context,
-    direction_mode: int | None = None,
+    direction_mode: Literal[4, 8] | None = None,
     resolution: str | None = None,
     palette_size: int | None = None,
-    alpha_policy: str | None = None,
+    alpha_policy: Literal["binary", "keep8bit"] | None = None,
 ) -> str:
     """Set default style parameters for future generations.
 
@@ -841,7 +842,7 @@ async def run_evaluation(
     variant_label: str = "default",
     case_names: list[str] | None = None,
     repeats: int = 1,
-    mode: str = "direct",
+    mode: Literal["direct", "agent"] = "direct",
 ) -> str:
     """Run the LLM-as-judge evaluation on standard test cases.
 
