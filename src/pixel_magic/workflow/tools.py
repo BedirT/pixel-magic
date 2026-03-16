@@ -25,6 +25,8 @@ class AgentToolContext:
     request: GenerationRequest
     plan: ExecutionPlan | None = None
     validation_packet: ValidationPacket | None = None
+    provider: str = "openai"
+    chromakey_color: str = "green"
 
 
 def _direction_names(direction_mode: int) -> list[str]:
@@ -63,10 +65,23 @@ def _normalize_animation_specs(request: GenerationRequest) -> list[dict[str, Any
     ]
 
 
-def build_plan_from_request(request: GenerationRequest) -> ExecutionPlan:
+def _bg_text(provider: str, chromakey_color: str = "green") -> str:
+    """Return the background instruction for a given provider."""
+    if provider == "gemini":
+        hex_c = "#00FF00" if chromakey_color == "green" else "#0000FF"
+        return f"Entire image background must be solid {chromakey_color} ({hex_c}) — every non-sprite pixel exactly {hex_c}, no transparency."
+    return "Entire image background must be fully transparent — every non-sprite pixel alpha=0."
+
+
+def build_plan_from_request(
+    request: GenerationRequest,
+    provider: str = "openai",
+    chromakey_color: str = "green",
+) -> ExecutionPlan:
     """Deterministic fallback plan builder used by both agents and executor tests."""
     prompts: list[PlannedPrompt] = []
     expected_total = 0
+    bg = _bg_text(provider, chromakey_color)
 
     if request.asset_type == AssetType.CHARACTER:
         direction_mode = int(request.parameters.get("direction_mode", 4))
@@ -91,7 +106,7 @@ def build_plan_from_request(request: GenerationRequest) -> ExecutionPlan:
                                 f"Resolution per frame: {request.resolution}. "
                                 f"Max colors: {request.max_colors}. "
                                 "Same character identity as provided reference image. "
-                                "Transparent background. No anti-aliasing."
+                                f"{bg} No anti-aliasing."
                             ),
                             expected_frames=int(anim["frame_count"]),
                             layout="horizontal_strip",
@@ -117,7 +132,7 @@ def build_plan_from_request(request: GenerationRequest) -> ExecutionPlan:
                         f"Single pixel art character sprite. Objective: {request.objective}. "
                         f"Direction: {direction}. Style: {request.style}. "
                         f"Resolution: {request.resolution}. Max colors: {request.max_colors}. "
-                        "Transparent background. No anti-aliasing."
+                        f"{bg} No anti-aliasing."
                     ),
                     expected_frames=1,
                     layout="horizontal_strip",
@@ -137,7 +152,7 @@ def build_plan_from_request(request: GenerationRequest) -> ExecutionPlan:
                             f"Direction: {direction}. Style: {request.style}. "
                             f"Resolution per frame: {request.resolution}. "
                             f"Max colors: {request.max_colors}. "
-                            "Transparent background. No anti-aliasing."
+                            f"{bg} No anti-aliasing."
                         ),
                         expected_frames=int(anim["frame_count"]),
                         layout="horizontal_strip",
@@ -158,7 +173,7 @@ def build_plan_from_request(request: GenerationRequest) -> ExecutionPlan:
                     f"Horizontal strip of {count} isometric tiles. Objective: {request.objective}. "
                     f"Tile types: {', '.join(str(t) for t in tile_types)}. "
                     f"Style: {request.style}. Max colors: {request.max_colors}. "
-                    "Transparent background. Clean pixel edges."
+                    f"{bg} Clean pixel edges."
                 ),
                 expected_frames=count,
                 layout="horizontal_strip",
@@ -178,7 +193,7 @@ def build_plan_from_request(request: GenerationRequest) -> ExecutionPlan:
                     f"Horizontal strip of {count} item sprites. Objective: {request.objective}. "
                     f"Items: {', '.join(str(d) for d in descriptions)}. "
                     f"Style: {request.style}. Resolution per item: {request.resolution}. "
-                    f"Max colors: {request.max_colors}. Transparent background."
+                    f"Max colors: {request.max_colors}. {bg}"
                 ),
                 expected_frames=count,
                 layout="horizontal_strip",
@@ -196,7 +211,7 @@ def build_plan_from_request(request: GenerationRequest) -> ExecutionPlan:
                     f"Horizontal strip of {frame_count} effect frames. "
                     f"Objective: {request.objective}. "
                     f"Style: {request.style}. Resolution per frame: {request.resolution}. "
-                    f"Max colors: {request.max_colors}. Transparent background."
+                    f"Max colors: {request.max_colors}. {bg}"
                 ),
                 expected_frames=frame_count,
                 layout="horizontal_strip",
@@ -216,7 +231,7 @@ def build_plan_from_request(request: GenerationRequest) -> ExecutionPlan:
                     f"Horizontal strip of {count} UI elements. Objective: {request.objective}. "
                     f"Elements: {', '.join(str(d) for d in descriptions)}. "
                     f"Style: {request.style}. Resolution: {request.resolution}. "
-                    f"Max colors: {request.max_colors}. Transparent background."
+                    f"Max colors: {request.max_colors}. {bg}"
                 ),
                 expected_frames=count,
                 layout="horizontal_strip",
@@ -231,7 +246,7 @@ def build_plan_from_request(request: GenerationRequest) -> ExecutionPlan:
                 prompt=(
                     f"{request.objective}. Style: {request.style}. "
                     f"Resolution: {request.resolution}. Max colors: {request.max_colors}. "
-                    "Transparent background."
+                    f"{bg}"
                 ),
                 expected_frames=request.expected_frames,
                 layout=request.layout,
@@ -313,7 +328,7 @@ async def build_character_prompt_pack(
     ctx: RunContextWrapper[AgentToolContext],
 ) -> dict[str, Any]:
     """Build the default character prompt pack from the request."""
-    plan = build_plan_from_request(ctx.context.request)
+    plan = build_plan_from_request(ctx.context.request, ctx.context.provider, ctx.context.chromakey_color)
     return {
         "expected_total_frames": plan.expected_total_frames,
         "prompt_keys": [p.key for p in plan.planned_prompts],
@@ -340,7 +355,7 @@ async def estimate_character_budget(
     ctx: RunContextWrapper[AgentToolContext],
 ) -> dict[str, Any]:
     """Estimate character generation cost footprint for planning."""
-    plan = build_plan_from_request(ctx.context.request)
+    plan = build_plan_from_request(ctx.context.request, ctx.context.provider, ctx.context.chromakey_color)
     calls = len(plan.planned_prompts)
     return {
         "estimated_generation_calls": calls,
@@ -353,7 +368,7 @@ async def build_tileset_prompt_pack(
     ctx: RunContextWrapper[AgentToolContext],
 ) -> dict[str, Any]:
     """Build default tileset prompt pack."""
-    plan = build_plan_from_request(ctx.context.request)
+    plan = build_plan_from_request(ctx.context.request, ctx.context.provider, ctx.context.chromakey_color)
     return {
         "expected_total_frames": plan.expected_total_frames,
         "prompt_keys": [p.key for p in plan.planned_prompts],
@@ -378,7 +393,7 @@ async def estimate_tileset_budget(
     ctx: RunContextWrapper[AgentToolContext],
 ) -> dict[str, Any]:
     """Estimate tileset planning budget."""
-    plan = build_plan_from_request(ctx.context.request)
+    plan = build_plan_from_request(ctx.context.request, ctx.context.provider, ctx.context.chromakey_color)
     return {"estimated_generation_calls": len(plan.planned_prompts), "estimated_seconds": 20}
 
 
@@ -387,7 +402,7 @@ async def build_items_prompt_pack(
     ctx: RunContextWrapper[AgentToolContext],
 ) -> dict[str, Any]:
     """Build default items prompt pack."""
-    plan = build_plan_from_request(ctx.context.request)
+    plan = build_plan_from_request(ctx.context.request, ctx.context.provider, ctx.context.chromakey_color)
     return {
         "expected_total_frames": plan.expected_total_frames,
         "prompt_keys": [p.key for p in plan.planned_prompts],
@@ -412,7 +427,7 @@ async def estimate_items_budget(
     ctx: RunContextWrapper[AgentToolContext],
 ) -> dict[str, Any]:
     """Estimate items generation budget."""
-    plan = build_plan_from_request(ctx.context.request)
+    plan = build_plan_from_request(ctx.context.request, ctx.context.provider, ctx.context.chromakey_color)
     return {"estimated_generation_calls": len(plan.planned_prompts), "estimated_seconds": 15}
 
 
@@ -421,7 +436,7 @@ async def build_effect_prompt_pack(
     ctx: RunContextWrapper[AgentToolContext],
 ) -> dict[str, Any]:
     """Build default effect prompt pack."""
-    plan = build_plan_from_request(ctx.context.request)
+    plan = build_plan_from_request(ctx.context.request, ctx.context.provider, ctx.context.chromakey_color)
     return {
         "expected_total_frames": plan.expected_total_frames,
         "prompt_keys": [p.key for p in plan.planned_prompts],
@@ -443,7 +458,7 @@ async def estimate_effect_budget(
     ctx: RunContextWrapper[AgentToolContext],
 ) -> dict[str, Any]:
     """Estimate effect generation budget."""
-    plan = build_plan_from_request(ctx.context.request)
+    plan = build_plan_from_request(ctx.context.request, ctx.context.provider, ctx.context.chromakey_color)
     return {"estimated_generation_calls": len(plan.planned_prompts), "estimated_seconds": 12}
 
 
@@ -452,7 +467,7 @@ async def build_ui_prompt_pack(
     ctx: RunContextWrapper[AgentToolContext],
 ) -> dict[str, Any]:
     """Build default UI prompt pack."""
-    plan = build_plan_from_request(ctx.context.request)
+    plan = build_plan_from_request(ctx.context.request, ctx.context.provider, ctx.context.chromakey_color)
     return {
         "expected_total_frames": plan.expected_total_frames,
         "prompt_keys": [p.key for p in plan.planned_prompts],
@@ -477,7 +492,7 @@ async def estimate_ui_budget(
     ctx: RunContextWrapper[AgentToolContext],
 ) -> dict[str, Any]:
     """Estimate UI generation budget."""
-    plan = build_plan_from_request(ctx.context.request)
+    plan = build_plan_from_request(ctx.context.request, ctx.context.provider, ctx.context.chromakey_color)
     return {"estimated_generation_calls": len(plan.planned_prompts), "estimated_seconds": 14}
 
 

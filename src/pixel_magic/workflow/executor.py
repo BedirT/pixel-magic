@@ -330,12 +330,18 @@ class WorkflowExecutor:
                     image = raw_images[prompt.key]
                     extraction_stats["raw_sizes"][prompt.key] = [image.width, image.height]
                     if prompt.expected_frames <= 1:
-                        frames = [image]
+                        if self.provider.provider_name == "gemini":
+                            from pixel_magic.pipeline.chromakey import remove_chromakey
+                            frames = [remove_chromakey(image, color=self.settings.chromakey_color)]
+                        else:
+                            frames = [image]
                     else:
                         frames = extract_frames(
                             image,
                             _safe_layout(prompt.layout),
                             prompt.expected_frames,
+                            provider=self.provider.provider_name,
+                            chromakey_color=self.settings.chromakey_color,
                         )
                         frames = normalize_frame_sizes(frames)
 

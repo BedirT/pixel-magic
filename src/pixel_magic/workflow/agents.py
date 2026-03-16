@@ -102,6 +102,8 @@ class AgentRuntime:
 
     model: str
     api_key: str
+    provider: str = "openai"
+    chromakey_color: str = "green"
 
     def __post_init__(self) -> None:
         self._enabled = bool(self.api_key)
@@ -123,9 +125,11 @@ class AgentRuntime:
     async def route_and_plan(self, request: GenerationRequest) -> tuple[ExecutionPlan, str]:
         """Route request via handoff and return planner output."""
         if not self._enabled:
-            return build_plan_from_request(request), "deterministic_fallback"
+            return build_plan_from_request(request, self.provider, self.chromakey_color), "deterministic_fallback"
 
-        context = AgentToolContext(request=request)
+        context = AgentToolContext(
+            request=request, provider=self.provider, chromakey_color=self.chromakey_color,
+        )
         payload = json.dumps(request.model_dump(), indent=2)
         output, last_agent_name = await self._run_agent(
             self._router,
@@ -140,7 +144,7 @@ class AgentRuntime:
 
         if isinstance(output, ExecutionPlan):
             return output, last_agent_name
-        return build_plan_from_request(request), "fallback_due_to_unstructured_output"
+        return build_plan_from_request(request, self.provider, self.chromakey_color), "fallback_due_to_unstructured_output"
 
     async def plan_correction(
         self,
@@ -157,7 +161,10 @@ class AgentRuntime:
                 notes="deterministic_fallback",
             )
 
-        context = AgentToolContext(request=request, plan=plan, validation_packet=packet)
+        context = AgentToolContext(
+            request=request, plan=plan, validation_packet=packet,
+            provider=self.provider, chromakey_color=self.chromakey_color,
+        )
         payload = {
             "retry_instructions": retry_instructions,
             "request": request.model_dump(),
@@ -193,7 +200,10 @@ class AgentRuntime:
         if not self._enabled:
             return FinalValidationDecision(**default_final_decision(packet))
 
-        context = AgentToolContext(request=request, plan=plan, validation_packet=packet)
+        context = AgentToolContext(
+            request=request, plan=plan, validation_packet=packet,
+            provider=self.provider, chromakey_color=self.chromakey_color,
+        )
         payload = json.dumps(packet.model_dump(), indent=2)
         output, _ = await self._run_agent(
             self._validator,

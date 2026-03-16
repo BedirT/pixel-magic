@@ -28,6 +28,8 @@ def extract_frames(
     layout: CompositeLayout,
     expected_count: int,
     grid_cols: int | None = None,
+    provider: str = "openai",
+    chromakey_color: str = "green",
 ) -> list[Image.Image]:
     """Extract individual sprite frames from a composite image.
 
@@ -36,6 +38,9 @@ def extract_frames(
         layout: How the sprites are arranged.
         expected_count: How many frames we expect to find.
         grid_cols: For GRID layout, how many columns.
+        provider: Image provider name — ``"gemini"`` uses chromakey removal,
+            others use corner-sampling background removal.
+        chromakey_color: Chromakey preset for Gemini (``"green"`` or ``"blue"``).
 
     Returns:
         List of extracted PIL Images (RGBA).
@@ -43,9 +48,9 @@ def extract_frames(
     composite = composite.convert("RGBA")
 
     if layout == CompositeLayout.AUTO_DETECT:
-        return _extract_auto(composite, expected_count)
+        return _extract_auto(composite, expected_count, provider=provider, chromakey_color=chromakey_color)
     elif layout == CompositeLayout.HORIZONTAL_STRIP:
-        return _extract_smart_strip(composite, expected_count)
+        return _extract_smart_strip(composite, expected_count, provider=provider, chromakey_color=chromakey_color)
     elif layout == CompositeLayout.VERTICAL_STRIP:
         return _extract_strip(composite, expected_count, horizontal=False)
     elif layout == CompositeLayout.GRID:
@@ -53,7 +58,7 @@ def extract_frames(
         rows = max(1, (expected_count + cols - 1) // cols)
         return _extract_grid(composite, rows, cols, expected_count)
     else:
-        return _extract_smart_strip(composite, expected_count)
+        return _extract_smart_strip(composite, expected_count, provider=provider, chromakey_color=chromakey_color)
 
 
 def _frame_aspect_ok(w: int, h: int) -> bool:
@@ -113,9 +118,21 @@ def _trim_transparent_padding(image: Image.Image) -> Image.Image:
     return cropped
 
 
-def _prepare_composite(image: Image.Image) -> Image.Image:
-    """Prepare a composite image for extraction: remove solid bg, trim padding."""
-    image = _remove_solid_background(image)
+def _prepare_composite(
+    image: Image.Image,
+    provider: str = "openai",
+    chromakey_color: str = "green",
+) -> Image.Image:
+    """Prepare a composite image for extraction: remove background, trim padding.
+
+    For Gemini provider, uses HSV-based chromakey removal.
+    For other providers, uses corner-sampling solid background removal.
+    """
+    if provider == "gemini":
+        from pixel_magic.pipeline.chromakey import remove_chromakey
+        image = remove_chromakey(image, color=chromakey_color)
+    else:
+        image = _remove_solid_background(image)
     return _trim_transparent_padding(image)
 
 
@@ -244,17 +261,25 @@ def _extract_by_separators(
 
 
 def _extract_smart_strip(
-    composite: Image.Image, expected_count: int
+    composite: Image.Image,
+    expected_count: int,
+    provider: str = "openai",
+    chromakey_color: str = "green",
 ) -> list[Image.Image]:
     """Smart extraction: separator detection, then auto-detect, then horizontal strip, then grid."""
     # Try separator detection on the RAW image first (before bg removal)
     # because _prepare_composite may destroy the magenta lines.
     sep_frames = _extract_by_separators(composite, expected_count)
     if sep_frames is not None:
+        # Separator-extracted frames still have the original background.
+        # For providers that use chromakey, remove it from each frame.
+        if provider == "gemini":
+            from pixel_magic.pipeline.chromakey import remove_chromakey
+            sep_frames = [remove_chromakey(f, color=chromakey_color) for f in sep_frames]
         return sep_frames
 
     # Remove solid backgrounds and trim padding — AI generators often add these
-    composite = _prepare_composite(composite)
+    composite = _prepare_composite(composite, provider=provider, chromakey_color=chromakey_color)
     w, h = composite.size
 
     # For a single frame, just return the whole image
@@ -372,7 +397,10 @@ def _extract_grid(
 
 
 def _extract_auto_silent(
-    composite: Image.Image, expected_count: int
+    composite: Image.Image,
+    expected_count: int,
+    provider: str = "openai",
+    chromakey_color: str = "green",
 ) -> list[Image.Image] | None:
     """Try auto-detect; return None if it can't find the expected number of regions.
 
@@ -472,14 +500,22 @@ def _run_component_detection(
     return frames
 
 
-def _extract_auto(composite: Image.Image, expected_count: int) -> list[Image.Image]:
+def _extract_auto(
+    composite: Image.Image,
+    expected_count: int,
+    provider: str = "openai",
+    chromakey_color: str = "green",
+) -> list[Image.Image]:
     """Auto-detect with fallbacks to grid/strip extraction."""
     # Try separator detection on raw image first
     sep_frames = _extract_by_separators(composite, expected_count)
     if sep_frames is not None:
+        if provider == "gemini":
+            from pixel_magic.pipeline.chromakey import remove_chromakey
+            sep_frames = [remove_chromakey(f, color=chromakey_color) for f in sep_frames]
         return sep_frames
 
-    composite = _prepare_composite(composite)
+    composite = _prepare_composite(composite, provider=provider, chromakey_color=chromakey_color)
     frames = _run_component_detection(composite, expected_count)
 
     if len(frames) == expected_count:

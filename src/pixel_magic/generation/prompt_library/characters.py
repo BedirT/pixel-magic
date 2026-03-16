@@ -9,15 +9,15 @@ from pixel_magic.generation.prompts import PromptTemplate
 _PIXEL_ART_SYSTEM = (
     "You are a professional pixel art sprite artist specializing in retro 16-bit "
     "game assets (SNES/Genesis era). Generate pixel-perfect sprites on a "
-    "transparent background with hard pixel edges and stepped shading. "
+    "${background_instruction} with hard pixel edges and stepped shading. "
     "Each sprite must be clearly separated. Every pixel must be a single flat "
     "color — use a unified, carefully chosen palette throughout."
 )
 
 _ANIMATION_SYSTEM = (
     "You are a professional pixel art animation specialist for retro 16-bit "
-    "video games. Generate pixel-perfect animation frames on transparent "
-    "background with hard pixel edges and stepped shading. All frames must "
+    "video games. Generate pixel-perfect animation frames on a "
+    "${background_instruction} with hard pixel edges and stepped shading. All frames must "
     "depict the exact same character with identical proportions, palette, and design."
 )
 
@@ -36,7 +36,7 @@ _ISOMETRIC_RULES = (
     "- S (south) = character facing directly toward the camera\n"
     "- E (east) = character facing right (side view)\n"
     "- N (north) = character facing directly away from camera\n"
-    "- Background MUST be fully transparent (no floor, no shadow, no background elements)\n"
+    "- ${background_rule} (no floor, no shadow, no background elements)\n"
     "- Pixel-perfect rendering: every edge is a hard pixel step with stepped shading, "
     "no anti-aliasing, no gradients, no blur\n"
     "- Unified palette of exactly ${max_colors} or fewer distinct colors across ALL sprites "
@@ -53,7 +53,7 @@ register(PromptTemplate(
     template=(
         "Create a horizontal strip of ${direction_count} pixel art character sprites "
         "separated by 1px magenta (#FF00FF) vertical divider lines "
-        "on a fully transparent background.\n"
+        "on a ${background_instruction}.\n"
         "Each sprite is the SAME character facing a different direction: ${direction_names}.\n\n"
         "Character: ${character_description}\n"
         "Style: ${style}\n"
@@ -75,6 +75,8 @@ register(PromptTemplate(
         "resolution": "64x64",
         "max_colors": "16",
         "palette_hint": "",
+        "background_instruction": "fully transparent background",
+        "background_rule": "Background MUST be fully transparent",
     },
     reference_strategy="none",
 ))
@@ -88,7 +90,7 @@ register(PromptTemplate(
     template=(
         "Create a horizontal strip of ${direction_count} pixel art character sprites "
         "separated by 1px magenta (#FF00FF) vertical divider lines "
-        "on a fully transparent background.\n"
+        "on a ${background_instruction}.\n"
         "Each sprite is the SAME character facing a different direction: ${direction_names}.\n\n"
         "Character: ${character_description}\n"
         "Style: ${style}\n"
@@ -110,6 +112,8 @@ register(PromptTemplate(
         "resolution": "64x64",
         "max_colors": "16",
         "palette_hint": "",
+        "background_instruction": "fully transparent background",
+        "background_rule": "Background MUST be fully transparent",
     },
     reference_strategy="none",
 ))
@@ -140,7 +144,7 @@ register(PromptTemplate(
         "- The character must look IDENTICAL across all frames (same proportions, same colors, same face)\n"
         "- Only the animated parts should change between frames (limbs, effects)\n"
         "- Use isometric perspective matching the ${direction} direction\n"
-        "- Background MUST be fully transparent (no floor, no shadow)\n"
+        "- ${background_rule} (no floor, no shadow)\n"
         "- Pixel-perfect rendering: hard pixel edges, stepped shading, no anti-aliasing\n"
         "- Unified palette of ${max_colors} or fewer colors\n"
         "- Show smooth progression of the ${animation_name} motion from start to end\n"
@@ -156,6 +160,8 @@ register(PromptTemplate(
         "resolution": "64x64",
         "max_colors": "16",
         "palette_hint": "",
+        "background_instruction": "fully transparent background",
+        "background_rule": "Background MUST be fully transparent",
     },
     reference_strategy="character_reference",
 ))
@@ -180,7 +186,7 @@ register(PromptTemplate(
         "(same proportions, colors, features)\n"
         "- Arrange frames in a single horizontal row, left to right, in animation order\n"
         "- Only the animated body parts should change between frames\n"
-        "- Background MUST be fully transparent\n"
+        "- ${background_rule}\n"
         "- Clean pixel art: no anti-aliasing, crisp pixel edges\n"
         "- Show smooth motion progression for the ${animation_name} action"
         + FRAMING_RULES
@@ -193,6 +199,8 @@ register(PromptTemplate(
         "style": "16-bit SNES RPG style",
         "resolution": "64x64",
         "max_colors": "16",
+        "background_instruction": "fully transparent background",
+        "background_rule": "Background MUST be fully transparent",
     },
     reference_strategy="character_reference",
 ))

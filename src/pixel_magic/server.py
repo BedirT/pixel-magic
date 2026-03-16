@@ -54,6 +54,8 @@ class AppState:
         self.workflow_agents = AgentRuntime(
             model=settings.agent_model,
             api_key=settings.openai_api_key,
+            provider=settings.provider,
+            chromakey_color=settings.chromakey_color,
         )
         self.workflow_executor = WorkflowExecutor(
             settings=settings,
@@ -782,6 +784,8 @@ async def set_provider(ctx: Context, provider: Literal["gemini", "openai"]) -> s
     state.workflow_agents = AgentRuntime(
         model=state.settings.agent_model,
         api_key=state.settings.openai_api_key,
+        provider=state.settings.provider,
+        chromakey_color=state.settings.chromakey_color,
     )
     state.workflow_executor = WorkflowExecutor(
         settings=state.settings,
@@ -799,6 +803,7 @@ async def set_style_defaults(
     resolution: str | None = None,
     palette_size: int | None = None,
     alpha_policy: Literal["binary", "keep8bit"] | None = None,
+    chromakey_color: Literal["green", "blue"] | None = None,
 ) -> str:
     """Set default style parameters for future generations.
 
@@ -807,6 +812,8 @@ async def set_style_defaults(
         resolution: Default sprite resolution (e.g., "64x64").
         palette_size: Default max palette colors.
         alpha_policy: "binary" or "keep8bit".
+        chromakey_color: Chromakey background color for Gemini provider.
+            "green" (default) or "blue" (for green-heavy sprites).
 
     Returns:
         Updated settings.
@@ -821,6 +828,8 @@ async def set_style_defaults(
         state.settings.palette_size = palette_size
     if alpha_policy is not None:
         state.settings.alpha_policy = alpha_policy
+    if chromakey_color is not None:
+        state.settings.chromakey_color = chromakey_color
 
     return json.dumps({
         "status": "success",
@@ -828,6 +837,7 @@ async def set_style_defaults(
         "resolution": state.settings.default_resolution,
         "palette_size": state.settings.palette_size,
         "alpha_policy": state.settings.alpha_policy,
+        "chromakey_color": state.settings.chromakey_color,
     }, indent=2)
 
 

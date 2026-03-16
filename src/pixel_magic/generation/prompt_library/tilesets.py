@@ -11,14 +11,14 @@ register(PromptTemplate(
     description="Generate a set of isometric ground tiles in one composite image",
     system_context=(
         "You are a professional pixel art environment artist for retro isometric RPG games. "
-        "Generate crisp, grid-aligned isometric tiles on transparent background. "
+        "Generate crisp, grid-aligned isometric tiles on a ${background_instruction}. "
         "NEVER use anti-aliasing, blur, or soft edges. All tiles must share a "
         "strictly limited, consistent color palette."
     ),
     template=(
         "Create a horizontal row of ${count} isometric ground tiles "
         "separated by 1px magenta (#FF00FF) vertical divider lines "
-        "on a transparent background.\n"
+        "on a ${background_instruction}.\n"
         "Each tile is a diamond shape (isometric view, 2:1 width-to-height ratio).\n\n"
         "Biome: ${biome}\n"
         "Tile variants: ${tile_types}\n"
@@ -30,11 +30,11 @@ register(PromptTemplate(
         "- Each tile is a flat isometric diamond shape (no 3D objects on top)\n"
         "- All tiles must tile seamlessly with each other at their edges\n"
         "- Consistent lighting direction (top-left light source)\n"
-        "- Background MUST be fully transparent outside the diamond shapes\n"
+        "- ${background_rule} outside the diamond shapes\n"
         "- ZERO anti-aliasing: every pixel edge must be a hard step, no gradients, "
         "no blur, no soft blending between colors\n"
         "- STRICT palette: use EXACTLY ${max_colors} or fewer distinct colors across ALL tiles "
-        "— count your colors carefully\n"
+        "\u2014 count your colors carefully\n"
         "- Authentic retro 16-bit rendering: flat-shaded pixel surfaces, 1-pixel outlines\n"
         "- Tiles should have subtle texture variation using pixel-level detail (tiny dots, "
         "single-pixel highlights) to avoid looking flat"
@@ -48,6 +48,8 @@ register(PromptTemplate(
         "count": "3",
         "style": "16-bit isometric RPG style",
         "max_colors": "16",
+        "background_instruction": "fully transparent background",
+        "background_rule": "Background MUST be fully transparent",
     },
     reference_strategy="none",
 ))
@@ -59,13 +61,13 @@ register(PromptTemplate(
     description="Generate isometric objects/props for a tileset",
     system_context=(
         "You are a professional pixel art environment artist for retro isometric games "
-        "(SNES/Genesis era). Generate pixel-perfect isometric objects on transparent "
-        "background with hard pixel edges and stepped shading."
+        "(SNES/Genesis era). Generate pixel-perfect isometric objects on a "
+        "${background_instruction} with hard pixel edges and stepped shading."
     ),
     template=(
         "Create a horizontal row of ${count} isometric objects/props "
         "separated by 1px magenta (#FF00FF) vertical divider lines "
-        "on a transparent background.\n\n"
+        "on a ${background_instruction}.\n\n"
         "Objects: ${tile_types}\n"
         "Biome context: ${biome}\n"
         "Base tile size: ${tile_width}x${tile_height} pixels\n"
@@ -75,7 +77,7 @@ register(PromptTemplate(
         "- Arrange objects in a single horizontal row, evenly spaced\n"
         "- Objects should sit naturally on an isometric ground plane\n"
         "- Consistent scale relative to the base tile size\n"
-        "- Background MUST be fully transparent\n"
+        "- ${background_rule}\n"
         "- Pixel-perfect rendering: hard pixel edges, stepped shading, no anti-aliasing\n"
         "- Unified palette of ${max_colors} or fewer colors\n"
         "- Consistent lighting (top-left)"
@@ -89,6 +91,8 @@ register(PromptTemplate(
         "count": "3",
         "style": "16-bit isometric RPG style",
         "max_colors": "16",
+        "background_instruction": "fully transparent background",
+        "background_rule": "Background MUST be fully transparent",
     },
     reference_strategy="none",
 ))
@@ -100,13 +104,13 @@ register(PromptTemplate(
     description="Generate isometric wall/elevation tile variants",
     system_context=(
         "You are a professional pixel art environment artist for retro isometric games "
-        "(SNES/Genesis era). Generate pixel-perfect isometric wall segments on transparent "
-        "background with hard pixel edges and stepped shading."
+        "(SNES/Genesis era). Generate pixel-perfect isometric wall segments on a "
+        "${background_instruction} with hard pixel edges and stepped shading."
     ),
     template=(
         "Create a horizontal row of ${count} isometric wall/elevation variants "
         "separated by 1px magenta (#FF00FF) vertical divider lines "
-        "on a transparent background.\n\n"
+        "on a ${background_instruction}.\n\n"
         "Wall types: ${tile_types}\n"
         "Biome context: ${biome}\n"
         "Base tile size: ${tile_width}x${tile_height} pixels\n"
@@ -117,7 +121,7 @@ register(PromptTemplate(
         "- Walls must connect seamlessly when placed adjacent in an isometric grid\n"
         "- Show the front face and top of the wall in isometric view\n"
         "- Consistent material, lighting (top-left), and scale\n"
-        "- Background MUST be fully transparent\n"
+        "- ${background_rule}\n"
         "- Pixel-perfect rendering: hard pixel edges, stepped shading, no anti-aliasing\n"
         "- Unified palette of ${max_colors} or fewer colors"
         + FRAMING_RULES
@@ -130,6 +134,8 @@ register(PromptTemplate(
         "count": "3",
         "style": "16-bit isometric RPG style",
         "max_colors": "16",
+        "background_instruction": "fully transparent background",
+        "background_rule": "Background MUST be fully transparent",
     },
     reference_strategy="none",
 ))

@@ -11,12 +11,12 @@ register(PromptTemplate(
     description="Generate a batch of item icons in a single composite image",
     system_context=(
         "You are a professional pixel art item designer for retro RPG games "
-        "(SNES/Genesis era). Generate pixel-perfect item icons on transparent "
-        "background with hard pixel edges and stepped shading. Every icon must "
+        "(SNES/Genesis era). Generate pixel-perfect item icons on a "
+        "${background_instruction} with hard pixel edges and stepped shading. Every icon must "
         "be instantly recognizable at small sizes."
     ),
     template=(
-        "Create a horizontal row of ${count} pixel art item icons on a transparent background.\n\n"
+        "Create a horizontal row of ${count} pixel art item icons on a ${background_instruction}.\n\n"
         "Items (left to right): ${item_descriptions}\n"
         "Resolution per icon: ${resolution}\n"
         "View: ${view}\n"
@@ -27,7 +27,7 @@ register(PromptTemplate(
         "- Each icon should fill most of its frame (minimal padding)\n"
         "- Items must be clearly distinct and recognizable at ${resolution}\n"
         "- Consistent style, scale, and lighting across all icons\n"
-        "- Background MUST be fully transparent\n"
+        "- ${background_rule}\n"
         "- Pixel-perfect rendering: every edge is a hard pixel step with stepped shading, "
         "no anti-aliasing, no gradients, no blur\n"
         "- Bold outlines (1-2px dark border) for readability at small sizes\n"
@@ -41,6 +41,8 @@ register(PromptTemplate(
         "view": "front-facing icon",
         "style": "16-bit SNES RPG style",
         "max_colors": "16",
+        "background_instruction": "fully transparent background",
+        "background_rule": "Background MUST be fully transparent",
     },
     reference_strategy="none",
 ))
@@ -52,13 +54,13 @@ register(PromptTemplate(
     description="Generate item sprites as they appear dropped in the game world",
     system_context=(
         "You are a professional pixel art item designer for retro isometric RPG games "
-        "(SNES/Genesis era). Generate pixel-perfect world-drop sprites on transparent "
-        "background with hard pixel edges."
+        "(SNES/Genesis era). Generate pixel-perfect world-drop sprites on a "
+        "${background_instruction} with hard pixel edges."
     ),
     template=(
         "Create a horizontal row of ${count} pixel art world-drop item sprites "
         "separated by 1px magenta (#FF00FF) vertical divider lines "
-        "on a transparent background.\n"
+        "on a ${background_instruction}.\n"
         "These are how items look when lying on the ground in an isometric game world.\n\n"
         "Items (left to right): ${item_descriptions}\n"
         "Resolution per sprite: ${resolution}\n"
@@ -69,7 +71,7 @@ register(PromptTemplate(
         "- Isometric perspective (items lying on the ground, viewed from above at ~30\u00b0)\n"
         "- Smaller and less detailed than inventory icons \u2014 focus on silhouette readability\n"
         "- Add a subtle drop shadow or glow to help visibility on varied ground tiles\n"
-        "- Background MUST be fully transparent\n"
+        "- ${background_rule}\n"
         "- Pixel-perfect rendering: hard pixel edges, stepped shading, no anti-aliasing\n"
         "- Unified palette of ${max_colors} or fewer colors"
         + FRAMING_RULES
@@ -80,6 +82,8 @@ register(PromptTemplate(
         "resolution": "24x24",
         "style": "16-bit isometric RPG style",
         "max_colors": "12",
+        "background_instruction": "fully transparent background",
+        "background_rule": "Background MUST be fully transparent",
     },
     reference_strategy="none",
 ))

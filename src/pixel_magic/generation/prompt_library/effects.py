@@ -9,8 +9,8 @@ register(PromptTemplate(
     description="Generate all frames of an animated visual effect in a horizontal strip",
     system_context=(
         "You are a professional pixel art VFX artist for retro-style video games "
-        "(SNES/Genesis era). Generate crisp, vibrant effect animations on transparent "
-        "background with hard pixel edges and stepped shading. Effects should read well "
+        "(SNES/Genesis era). Generate crisp, vibrant effect animations on a "
+        "${background_instruction} with hard pixel edges and stepped shading. Effects should read well "
         "at small sizes and feel dynamic."
     ),
     template=(
@@ -29,7 +29,7 @@ register(PromptTemplate(
         "- Frame 1: effect begins / appears\n"
         "- Middle frames: effect at full intensity\n"
         "- Final frame (frame ${frame_count}): effect dissipating / fading\n"
-        "- Background MUST be fully transparent (the effect floats in space)\n"
+        "- ${background_rule} (the effect floats in space)\n"
         "- Pixel-perfect rendering: hard pixel edges, stepped shading, no anti-aliasing\n"
         "- Unified palette of exactly ${max_colors} or fewer colors\n"
         "- Each frame should be the same size\n"
@@ -44,6 +44,8 @@ register(PromptTemplate(
         "style": "16-bit pixel art",
         "max_colors": "12",
         "color_emphasis": "",
+        "background_instruction": "fully transparent background",
+        "background_rule": "Background MUST be fully transparent",
     },
     reference_strategy="none",
 ))

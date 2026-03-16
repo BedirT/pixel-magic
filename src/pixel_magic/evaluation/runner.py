@@ -134,7 +134,12 @@ class EvalRunner:
         self._workflow_executor = WorkflowExecutor(
             settings=settings,
             provider=ProviderAdapter(provider, settings),
-            agents=AgentRuntime(model=settings.agent_model, api_key=settings.openai_api_key),
+            agents=AgentRuntime(
+                model=settings.agent_model,
+                api_key=settings.openai_api_key,
+                provider=settings.provider,
+                chromakey_color=settings.chromakey_color,
+            ),
         )
 
     async def run_case(

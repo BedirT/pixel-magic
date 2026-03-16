@@ -9,14 +9,14 @@ register(PromptTemplate(
     description="Generate multiple UI elements in a single composite image",
     system_context=(
         "You are a professional pixel art UI designer for retro RPG games "
-        "(SNES/Genesis era). Generate pixel-perfect, functional UI elements on "
-        "transparent background with hard pixel edges and stepped shading. "
+        "(SNES/Genesis era). Generate pixel-perfect, functional UI elements on a "
+        "${background_instruction} with hard pixel edges and stepped shading. "
         "UI must be readable and match an authentic 16-bit pixel art aesthetic."
     ),
     template=(
         "Create a horizontal row of ${count} pixel art UI elements "
         "separated by 1px magenta (#FF00FF) vertical divider lines "
-        "on a transparent background.\n\n"
+        "on a ${background_instruction}.\n\n"
         "Elements (left to right): ${element_descriptions}\n"
         "Resolution per element: ${resolution}\n"
         "Style: ${style}\n"
@@ -26,7 +26,7 @@ register(PromptTemplate(
         "- Each element should be clearly distinct and functional-looking\n"
         "- Use consistent border/frame style across all elements\n"
         "- Rounded or beveled edges in pixel art style (1-2px borders)\n"
-        "- Background MUST be fully transparent\n"
+        "- ${background_rule}\n"
         "- Pixel-perfect rendering: every edge is a hard pixel step with stepped shading, "
         "no anti-aliasing, no gradients, no blur\n"
         "- Unified palette of exactly ${max_colors} or fewer colors — share the same "
@@ -41,6 +41,8 @@ register(PromptTemplate(
         "resolution": "64x64",
         "style": "16-bit RPG UI style",
         "max_colors": "8",
+        "background_instruction": "fully transparent background",
+        "background_rule": "Background MUST be fully transparent",
     },
     reference_strategy="none",
 ))

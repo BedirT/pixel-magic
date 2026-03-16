@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     qa_max_retries: int = 3
     qa_min_vision_score: float = 0.7
 
+    # Chromakey (for providers without native transparency, e.g. Gemini)
+    chromakey_color: Literal["green", "blue"] = "green"
+
     # Pipeline
     grid_range_min: int = 2
     grid_range_max: int = 32

@@ -154,6 +154,58 @@ class TestExtractBySeparators:
         assert len(frames) == 4
 
 
+class TestChromakeyExtraction:
+    """Test extract_frames with provider='gemini' on green-background composites."""
+
+    def _make_green_bg_strip(
+        self, count: int = 3, frame_w: int = 32, frame_h: int = 32
+    ) -> Image.Image:
+        """Create a horizontal strip of sprites on green (#00FF00) background."""
+        rng = np.random.RandomState(42)
+        total_w = count * frame_w + (count - 1)  # 1px magenta separators
+        arr = np.zeros((frame_h, total_w, 4), dtype=np.uint8)
+        # Fill with chromakey green
+        arr[:, :, 1] = 255
+        arr[:, :, 3] = 255
+
+        x = 0
+        for i in range(count):
+            color = rng.randint(50, 200, size=3)
+            # Place a smaller sprite in each cell (10x10 centered)
+            cy, cx = frame_h // 2, x + frame_w // 2
+            arr[cy - 5 : cy + 5, cx - 5 : cx + 5, :3] = color
+            x += frame_w
+            if i < count - 1:
+                # Magenta separator
+                arr[:, x, :3] = [255, 0, 255]
+                x += 1
+
+        return Image.fromarray(arr, "RGBA")
+
+    def test_gemini_extracts_with_chromakey_removal(self):
+        """Gemini provider should use chromakey removal on green backgrounds."""
+        strip = self._make_green_bg_strip(count=3)
+        frames = extract_frames(
+            strip, CompositeLayout.HORIZONTAL_STRIP, expected_count=3,
+            provider="gemini", chromakey_color="green",
+        )
+        assert len(frames) == 3
+        # Each frame should have transparent areas (green removed)
+        for f in frames:
+            arr = np.array(f)
+            transparent_pixels = np.sum(arr[:, :, 3] == 0)
+            assert transparent_pixels > 0, "Green background should be removed"
+
+    def test_openai_unchanged(self):
+        """OpenAI provider should not change behavior."""
+        strip = _make_strip(3, 32, 32)
+        frames = extract_frames(
+            strip, CompositeLayout.HORIZONTAL_STRIP, expected_count=3,
+            provider="openai",
+        )
+        assert len(frames) == 3
+
+
 class TestRemoveMagentaBleed:
     def test_clears_edge_magenta(self):
         arr = np.zeros((32, 32, 4), dtype=np.uint8)
