@@ -22,6 +22,8 @@ register(PromptTemplate(
         "Style: ${style}\n"
         "Maximum colors: ${max_colors} total\n\n"
         "CRITICAL RULES:\n"
+        "- A reference image is attached showing the exact grid layout with magenta dividers. "
+        "Match this layout precisely — place each element within the cells shown.\n"
         "- Arrange all elements in a single horizontal row, evenly spaced\n"
         "- Each element should be clearly distinct and functional-looking\n"
         "- Use consistent border/frame style across all elements\n"
@@ -38,9 +40,9 @@ register(PromptTemplate(
     defaults={
         "element_descriptions": "health bar frame, mana bar frame, inventory slot",
         "count": "3",
-        "resolution": "64x64",
+        "resolution": "128x128",
         "style": "16-bit RPG UI style",
-        "max_colors": "8",
+        "max_colors": "16",
         "background_instruction": "fully transparent background",
         "background_rule": "Background MUST be fully transparent",
     },

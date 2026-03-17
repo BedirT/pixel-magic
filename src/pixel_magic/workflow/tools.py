@@ -11,6 +11,7 @@ from pixel_magic.generation.prompt_library._shared import (
     background_instruction,
     background_rule,
     framing_rules,
+    perspective_rules,
 )
 from pixel_magic.generation.prompts import PromptBuilder
 from pixel_magic.workflow.models import (
@@ -222,12 +223,14 @@ def build_plan_from_request(
     elif request.asset_type == AssetType.EFFECT:
         frame_count = int(request.parameters.get("frame_count", request.expected_frames))
         frame_count = max(1, frame_count)
+        perspective = request.parameters.get("perspective", "isometric")
         prompt_text = pb.render(
             "effect_animation",
             **base_vars,
             effect_description=request.objective,
             frame_count=str(frame_count),
             color_emphasis=request.parameters.get("color_emphasis", ""),
+            perspective_rules=perspective_rules(perspective),
         )
         prompts.append(
             PlannedPrompt(
@@ -261,10 +264,12 @@ def build_plan_from_request(
         expected_total += count
 
     else:
+        perspective = request.parameters.get("perspective", "isometric")
         prompt_text = pb.render(
             "custom_generation",
             **base_vars,
             description=request.objective,
+            perspective_rules=perspective_rules(perspective),
         ) if pb.get("custom_generation") else (
             f"{request.objective}. Style: {request.style}. "
             f"Resolution: {request.resolution}. Max colors: {request.max_colors}."

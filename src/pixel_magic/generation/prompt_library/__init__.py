@@ -22,6 +22,7 @@ def _load_all() -> None:
     """Import all sub-modules so their register() calls execute."""
     from pixel_magic.generation.prompt_library import (  # noqa: F401
         characters,
+        custom,
         effects,
         items,
         tilesets,

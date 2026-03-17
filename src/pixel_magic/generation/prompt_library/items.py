@@ -23,6 +23,8 @@ register(PromptTemplate(
         "Style: ${style}\n"
         "Maximum colors: ${max_colors} total across all items\n\n"
         "CRITICAL RULES:\n"
+        "- A reference image is attached showing the exact grid layout with magenta dividers. "
+        "Match this layout precisely — place each icon within the cells shown.\n"
         "- Arrange items in a single horizontal row, evenly spaced, in the listed order\n"
         "- Each icon should fill most of its frame (minimal padding)\n"
         "- Items must be clearly distinct and recognizable at ${resolution}\n"

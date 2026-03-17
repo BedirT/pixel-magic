@@ -56,7 +56,7 @@ def remove_islands(image: Image.Image, min_size: int = 2) -> Image.Image:
     alpha = arr[:, :, 3]
     binary = (alpha > 128).astype(np.uint8)
 
-    labels = measure.label(binary, connectivity=1)
+    labels = measure.label(binary, connectivity=2)
     for region in measure.regionprops(labels):
         if region.area < min_size:
             coords = region.coords
@@ -146,8 +146,8 @@ def cleanup_sprite(
     if palette_colors:
         result = remove_aa_artifacts(result, palette_colors)
 
-    result = remove_islands(result, min_island_size)
     result = fill_holes(result, max_hole_size)
+    result = remove_islands(result, min_island_size)
 
     if add_outline:
         result = enforce_outline(result)

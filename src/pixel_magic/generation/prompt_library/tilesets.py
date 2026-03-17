@@ -26,6 +26,8 @@ register(PromptTemplate(
         "Style: ${style}\n"
         "Maximum colors: STRICTLY ${max_colors} or fewer colors total\n\n"
         "CRITICAL RULES:\n"
+        "- A reference image is attached showing the exact grid layout with magenta dividers. "
+        "Match this layout precisely — place each tile within the cells shown.\n"
         "- Arrange tiles in a single horizontal row, evenly spaced, in this order: ${tile_types}\n"
         "- Each tile is a flat isometric diamond shape (no 3D objects on top)\n"
         "- All tiles must tile seamlessly with each other at their edges\n"

@@ -22,7 +22,10 @@ register(PromptTemplate(
         "Style: ${style}\n"
         "Maximum colors: ${max_colors}\n"
         "Color emphasis: ${color_emphasis}\n\n"
+        "${perspective_rules}"
         "CRITICAL RULES:\n"
+        "- A reference image is attached showing the exact grid layout with magenta dividers. "
+        "Match this layout precisely — place each frame within the cells shown.\n"
         "- Produce exactly ${frame_count} distinct frames, each showing a "
         "different phase of the effect lifecycle\n"
         "- Arrange ALL ${frame_count} frames in a single horizontal row, left to right, in animation order\n"
@@ -46,6 +49,7 @@ register(PromptTemplate(
         "color_emphasis": "",
         "background_instruction": "fully transparent background",
         "background_rule": "Background MUST be fully transparent",
+        "perspective_rules": "",
     },
     reference_strategy="none",
 ))

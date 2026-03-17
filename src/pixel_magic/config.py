@@ -62,7 +62,7 @@ class Settings(BaseSettings):
     dither_type: Literal["none", "ordered", "error_diffusion"] = "none"
     dither_strength: float = 0.3
     min_island_size: int = 2
-    max_hole_size: int = 2
+    max_hole_size: int = 4
     enforce_outline: bool = True
 
     # Export

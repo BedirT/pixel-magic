@@ -335,6 +335,7 @@ async def generate_effect(
     style: str = "16-bit pixel art",
     max_colors: int = 12,
     color_emphasis: str = "",
+    perspective: str = "isometric",
 ) -> str:
     """Generate an animated pixel art visual effect (explosion, magic, etc.).
 
@@ -345,6 +346,7 @@ async def generate_effect(
         style: Pixel art style.
         max_colors: Max palette colors.
         color_emphasis: Dominant colors (e.g., "fire: orange, red, yellow").
+        perspective: Perspective style ("isometric" or "flat").
 
     Returns:
         JSON with output paths.
@@ -361,6 +363,7 @@ async def generate_effect(
         parameters={
             "frame_count": frame_count,
             "color_emphasis": color_emphasis,
+            "perspective": perspective,
         },
     )
     result = await state.workflow_executor.run(request)
@@ -371,15 +374,15 @@ async def generate_effect(
 async def generate_ui_elements(
     ctx: Context,
     element_descriptions: list[str],
-    resolution: str = "64x64",
+    resolution: str = "128x128",
     style: str = "16-bit RPG UI style",
-    max_colors: int = 8,
+    max_colors: int = 16,
 ) -> str:
     """Generate pixel art UI elements in batch.
 
     Args:
         element_descriptions: List of UI element descriptions.
-        resolution: Element resolution.
+        resolution: Element resolution (default 128x128 for usable detail).
         style: Pixel art style.
         max_colors: Max palette colors.
 
@@ -407,6 +410,10 @@ async def generate_custom(
     prompt: str,
     frame_count: int = 1,
     layout: Literal["horizontal_strip", "vertical_strip", "grid", "auto_detect"] = "horizontal_strip",
+    style: str = "16-bit pixel art",
+    resolution: str = "64x64",
+    max_colors: int = 16,
+    perspective: str = "isometric",
 ) -> str:
     """Generate pixel art from a custom freeform prompt.
 
@@ -415,6 +422,10 @@ async def generate_custom(
         frame_count: Number of frames to extract from the composite.
         layout: Layout of frames in the composite:
             horizontal_strip, vertical_strip, grid, auto_detect.
+        style: Pixel art style.
+        resolution: Sprite resolution.
+        max_colors: Max palette colors.
+        perspective: Perspective style ("isometric" or "flat").
 
     Returns:
         JSON with output paths.
@@ -424,12 +435,12 @@ async def generate_custom(
         asset_type=AssetType.CUSTOM,
         name="custom",
         objective=prompt,
-        style="custom",
-        resolution=state.settings.default_resolution,
-        max_colors=state.settings.palette_size,
+        style=style,
+        resolution=resolution,
+        max_colors=max_colors,
         expected_frames=frame_count,
         layout=layout,
-        parameters={},
+        parameters={"perspective": perspective},
     )
     result = await state.workflow_executor.run(request)
     return _serialize_workflow_result(result)

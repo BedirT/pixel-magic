@@ -15,6 +15,7 @@ from pixel_magic.models.asset import CompositeLayout
 from pixel_magic.models.palette import Palette
 from pixel_magic.pipeline.cleanup import cleanup_sprite
 from pixel_magic.pipeline.palette import extract_adaptive_palette, quantize_image
+from pixel_magic.pipeline.template import generate_grid_template
 from pixel_magic.qa.deterministic import run_deterministic_qa
 from pixel_magic.tracing import get_tracer
 from pixel_magic.usage import build_usage_entry, summarize_usage_entries
@@ -410,6 +411,15 @@ class WorkflowExecutor:
                                 ref = external_reference_images.get(ref_path)
                                 if ref is not None:
                                     refs.append(ref)
+                        # Inject grid template for multi-frame generation
+                        if prompt.expected_frames > 1 and target_frame_size:
+                            tw, th = target_frame_size
+                            grid_tpl = generate_grid_template(
+                                count=prompt.expected_frames,
+                                cell_w=tw,
+                                cell_h=th,
+                            )
+                            refs.insert(0, grid_tpl)
                         result = await self.provider.generate(prompt.prompt, refs or None)
                         raw_images[prompt.key] = result.image
                         usage_entry = build_usage_entry(

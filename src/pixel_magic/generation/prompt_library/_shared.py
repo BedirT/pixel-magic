@@ -44,3 +44,24 @@ def background_rule(provider: str = "openai", chromakey_color: str = "green") ->
 
 # Template-variable version: uses ${background_rule} so it adapts per-provider at render time
 FRAMING_RULES = _FRAMING_BASE
+
+# Generic isometric perspective rules (no character-specific directions).
+# Used by effects, custom, and any asset type that wants isometric perspective.
+ISOMETRIC_PERSPECTIVE = (
+    "\nPERSPECTIVE — MANDATORY (isometric 3/4 top-down view):\n"
+    "- The camera is positioned ABOVE and in front of the subject, looking "
+    "down at ~30°. The viewer can see the TOP of the subject.\n"
+    "- Subjects appear slightly foreshortened vertically — they are NOT "
+    "drawn as flat front-facing images. Imagine the subject sitting on a "
+    "diamond-shaped floor tile.\n"
+    "- The ground plane is an isometric diamond grid (2:1 width-to-height ratio).\n"
+    "- Think of classic SNES RPG sprites: Final Fantasy VI, Chrono Trigger "
+    "overworld, Final Fantasy Tactics — that exact camera angle.\n"
+)
+
+
+def perspective_rules(perspective: str = "isometric") -> str:
+    """Return perspective rules string based on the requested perspective."""
+    if perspective.lower() == "isometric":
+        return ISOMETRIC_PERSPECTIVE
+    return ""
