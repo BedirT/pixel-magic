@@ -162,6 +162,10 @@ class ArtifactManifest(BaseModel):
     metadata_path: str
     raw_paths: dict[str, str] = Field(default_factory=dict)
     frame_paths: dict[str, list[str]] = Field(default_factory=dict)
+    generated_frame_paths: dict[str, list[str]] = Field(default_factory=dict)
+    generated_groups: dict[str, int] = Field(default_factory=dict)
+    mirrored_groups: dict[str, str] = Field(default_factory=dict)
+    generated_total_frames: int = 0
     total_frames: int = 0
 
 
@@ -182,6 +186,7 @@ class JobMetrics(BaseModel):
     total_generation_calls: int = 0
     retry_count: int = 0
     duration_s: float = 0.0
+    usage: dict[str, Any] = Field(default_factory=dict)
 
 
 class JobError(BaseModel):

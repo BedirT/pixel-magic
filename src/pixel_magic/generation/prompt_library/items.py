@@ -32,8 +32,7 @@ register(PromptTemplate(
         "no anti-aliasing, no gradients, no blur\n"
         "- Bold outlines (1-2px dark border) for readability at small sizes\n"
         "- Unified palette of exactly ${max_colors} or fewer colors — reuse colors "
-        "across all items for visual cohesion"
-    ),
+        "across all items for visual cohesion"        + FRAMING_RULES    ),
     defaults={
         "item_descriptions": "iron sword, health potion, wooden shield",
         "count": "3",

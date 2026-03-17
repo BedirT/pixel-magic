@@ -17,6 +17,7 @@ from pixel_magic.evaluation.cases import EvalCase
 from pixel_magic.evaluation.judge import JudgeResult, PixelArtJudge
 from pixel_magic.generation.prompts import PromptBuilder
 from pixel_magic.providers.base import GenerationConfig, ImageProvider
+from pixel_magic.usage import build_usage_entry, summarize_usage_entries
 from pixel_magic.workflow import (
     AgentRuntime,
     AssetType,
@@ -26,6 +27,16 @@ from pixel_magic.workflow import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _judge_usage_entry(judge: JudgeResult) -> dict | None:
+    raw = getattr(judge, "raw_response", {})
+    if not isinstance(raw, dict):
+        return None
+    usage = raw.get("_usage")
+    if isinstance(usage, dict):
+        return usage
+    return None
 
 
 @dataclass
@@ -188,6 +199,19 @@ class EvalRunner:
             expected_count=case.expected_count,
         )
 
+        generation_entry = build_usage_entry(
+            result.metadata,
+            provider=str(result.metadata.get("provider", "")) if isinstance(result.metadata, dict) else "",
+            model=result.model_used,
+        )
+        judge_entry = _judge_usage_entry(judge_result)
+        generation_metadata = dict(result.metadata or {})
+        generation_metadata["usage"] = {
+            "generation": summarize_usage_entries([generation_entry]),
+            "judge": summarize_usage_entries([judge_entry] if judge_entry else []),
+            "agent": summarize_usage_entries([]),
+        }
+
         return EvalRunRecord(
             case_name=case.name,
             template_name=case.template_name,
@@ -197,7 +221,7 @@ class EvalRunner:
             judge=judge_result,
             generation_time_s=gen_time,
             image_path=str(img_path),
-            generation_metadata=result.metadata,
+            generation_metadata=generation_metadata,
         )
 
     async def run_case_agent(
@@ -228,6 +252,7 @@ class EvalRunner:
                     "status": result.status.value,
                     "stage": result.stage.value,
                     "errors": [e.model_dump(mode="json") for e in result.errors],
+                    "usage": result.metrics.usage if result.metrics else {},
                 },
             )
 
@@ -264,6 +289,12 @@ class EvalRunner:
                 expected_count=case.expected_count,
             )
 
+        usage = dict(result.metrics.usage if result.metrics else {})
+        judge_entry = _judge_usage_entry(judge_result)
+        usage["judge"] = summarize_usage_entries([judge_entry] if judge_entry else [])
+        usage.setdefault("agent", summarize_usage_entries([]))
+        usage.setdefault("generation", summarize_usage_entries([]))
+
         prompt_rendered = "(workflow agent mode)"
         if result.plan and result.plan.planned_prompts:
             prompt_rendered = result.plan.planned_prompts[0].prompt
@@ -284,6 +315,7 @@ class EvalRunner:
                 "stage": result.stage.value,
                 "frame_count": result.artifacts.total_frames,
                 "retry_count": result.metrics.retry_count if result.metrics else 0,
+                "usage": usage,
             },
         )
 

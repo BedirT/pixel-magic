@@ -74,7 +74,7 @@ async def test_extend_character_animation_smoke(monkeypatch, tmp_path):
     reference_path = tmp_path / "ref.png"
     _make_strip(1).save(reference_path)
 
-    settings = Settings(output_dir=tmp_path, palettes_dir=tmp_path, OPENAI_API_KEY="")
+    settings = Settings(output_dir=tmp_path, palettes_dir=tmp_path, OPENAI_API_KEY="", enforce_outline=False)
     provider = DummyProvider()
     adapter = ProviderAdapter(provider, settings)
     agents = AgentRuntime(model=settings.agent_model, api_key="")
@@ -94,6 +94,11 @@ async def test_extend_character_animation_smoke(monkeypatch, tmp_path):
     payload = json.loads(response)
 
     assert payload["status"] == "success"
-    assert payload["artifacts"]["total_frames"] == 4
+    assert payload["artifacts"]["generated_total_frames"] == 4
+    assert payload["artifacts"]["total_frames"] == 8
+    assert set(payload["artifacts"]["mirrored_groups"]) == {
+        "jump_south_west",
+        "jump_north_west",
+    }
     assert payload["metrics"]["retry_count"] == 0
-    assert payload["output_paths"]
+    assert len(payload["output_paths"]) == 8

@@ -10,6 +10,7 @@ services:
       - PIXEL_MAGIC_PROVIDER=${PIXEL_MAGIC_PROVIDER:-gemini}
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://phoenix:6006/v1/traces
     volumes:
+      - ./src:/app/src
       - ./output:/app/output
       - ./prompts:/app/prompts
       - ./palettes:/app/palettes

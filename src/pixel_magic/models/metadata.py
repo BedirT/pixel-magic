@@ -15,6 +15,7 @@ class QACheckName(str, Enum):
     ISLAND_NOISE = "island_noise"
     FRAME_COUNT_MATCH = "frame_count_match"
     FRAME_SIZE_CONSISTENCY = "frame_size_consistency"
+    REQUESTED_FRAME_SIZE = "requested_frame_size"
     PALETTE_DELTA = "palette_delta"
     TRIM_OFFSET_VALID = "trim_offset_valid"
     ANIM_FLICKER = "anim_flicker"

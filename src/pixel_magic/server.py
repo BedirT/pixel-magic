@@ -135,27 +135,16 @@ async def generate_character(
     character_description: str,
     name: str = "character",
     style: str = "16-bit SNES RPG style",
-    direction_mode: Literal[4, 8] = 4,
-    animations: dict | None = None,
-    resolution: str = "64x64",
-    max_colors: int = 16,
-    palette_name: str | None = None,
     palette_hint: str = "",
 ) -> str:
-    """Generate a complete pixel art character sprite set with all directions and animations.
+    """Generate a pixel art character sprite with 4 isometric directions.
+
+    Generates 2 direction poses (SE, NE) and mirrors them to get all 4 directions.
 
     Args:
         character_description: Detailed description of the character's appearance.
         name: Character name (used for file naming).
         style: Pixel art style description (e.g., "16-bit SNES RPG style").
-        direction_mode: 4 (S,E + flips) or 8 (S,SE,E,NE,N + flips) directions.
-        animations: Dict of animation definitions. Keys are animation names, values are
-            either a preset name string (e.g., "idle", "walk", "attack") or a dict with
-            keys: frame_count, description, duration_ms, is_looping.
-            Defaults to idle + walk if not specified.
-        resolution: Target sprite resolution (e.g., "64x64", "32x32").
-        max_colors: Maximum palette colors.
-        palette_name: Name of a .hex palette file to use (e.g., "default_16").
         palette_hint: Text hint for color palette (e.g., "warm earth tones").
 
     Returns:
@@ -167,12 +156,10 @@ async def generate_character(
         name=name,
         objective=character_description,
         style=style,
-        resolution=resolution,
-        max_colors=max_colors,
-        palette_name=palette_name,
+        resolution="64x64",
+        max_colors=16,
         parameters={
-            "direction_mode": direction_mode,
-            "animations": animations or {},
+            "direction_mode": 4,
             "palette_hint": palette_hint,
         },
     )

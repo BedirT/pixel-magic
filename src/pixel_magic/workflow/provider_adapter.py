@@ -8,6 +8,7 @@ from PIL import Image
 
 from pixel_magic.config import Settings
 from pixel_magic.providers.base import GenerationConfig, GenerationResult, ImageProvider
+from pixel_magic.usage import normalize_usage_metadata
 
 
 def create_provider(settings: Settings) -> ImageProvider:
@@ -62,8 +63,41 @@ class ProviderAdapter:
             thinking_level=self.settings.gemini_thinking_level,
         )
         if references:
-            return await self.provider.generate_with_references(prompt, references, config)
-        return await self.provider.generate(prompt, config)
+            result = await self.provider.generate_with_references(prompt, references, config)
+        else:
+            result = await self.provider.generate(prompt, config)
+
+        metadata = dict(result.metadata or {})
+        provider_name = str(metadata.get("provider", self.provider_name))
+        model_name = str(metadata.get("model", result.model_used or self.model_name))
+        raw_usage = metadata.get("raw_usage", metadata.get("usage", {}))
+        if not isinstance(raw_usage, dict):
+            raw_usage = {}
+        metadata["provider"] = provider_name
+        metadata["model"] = model_name
+        metadata["endpoint"] = str(
+            metadata.get(
+                "endpoint",
+                "generate_with_references" if references else "generate",
+            )
+        )
+        metadata["image_size"] = str(metadata.get("image_size", metadata.get("size", config.image_size)))
+        metadata["reference_count"] = len(references or [])
+        metadata["raw_usage"] = raw_usage
+        metadata["normalized_usage"] = normalize_usage_metadata(metadata, provider=provider_name)
+        metadata["cost_inputs"] = {
+            "provider": provider_name,
+            "model": model_name,
+            **metadata["normalized_usage"],
+        }
+
+        return GenerationResult(
+            image=result.image,
+            prompt_used=result.prompt_used,
+            model_used=result.model_used or model_name,
+            tokens_used=result.tokens_used,
+            metadata=metadata,
+        )
 
     async def evaluate(self, image: Image.Image, prompt: str) -> dict:
         """Evaluate generated content through provider vision endpoint."""

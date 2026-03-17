@@ -6,7 +6,7 @@ from pixel_magic.config import Settings, get_settings, reset_settings
 class TestSettings:
     def test_defaults(self):
         s = Settings()
-        assert s.provider == "gemini"
+        assert s.provider == "openai"
         assert s.direction_mode == 4
         assert s.palette_size == 16
         assert s.alpha_policy == "binary"

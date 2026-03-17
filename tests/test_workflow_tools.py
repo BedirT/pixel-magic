@@ -38,21 +38,22 @@ def test_build_plan_character_counts_frames():
         max_colors=16,
         parameters={
             "direction_mode": 4,
-            "animations": {
-                "idle": {"frame_count": 2, "description": "idle pose"},
-            },
         },
     )
 
     plan = build_plan_from_request(request)
     assert plan.asset_type == AssetType.CHARACTER
-    assert plan.expected_total_frames == 6
+    assert plan.expected_total_frames == 2
     assert [p.key for p in plan.planned_prompts] == [
-        "base_south_east",
-        "base_north_east",
-        "idle_south_east",
-        "idle_north_east",
+        "pose_south_east",
+        "pose_north_east",
     ]
+    # Each direction is a single-frame image
+    assert plan.planned_prompts[0].expected_frames == 1
+    assert plan.planned_prompts[1].expected_frames == 1
+    # Both directions generate independently (no cross-references)
+    assert plan.planned_prompts[0].reference_key is None
+    assert plan.planned_prompts[1].reference_key is None
 
 
 def test_build_plan_character_extension_mode_uses_external_reference():
@@ -148,3 +149,47 @@ def test_export_assets_writes_expected_files(tmp_path):
 
     metadata = json.loads((tmp_path / "hero_test" / "hero_test_metadata.json").read_text())
     assert metadata["total_frames"] == 2
+
+
+def test_export_assets_materializes_mirrored_character_directions(tmp_path):
+    request = GenerationRequest(
+        asset_type=AssetType.CHARACTER,
+        name="hero_jump",
+        objective="Extend hero with jump animation",
+        style="16-bit RPG",
+        resolution="64x64",
+        max_colors=16,
+        parameters={
+            "direction_mode": 4,
+            "extension_mode": True,
+        },
+    )
+
+    groups = {
+        "jump_south_east": [_make_frame()],
+        "jump_north_east": [_make_frame()],
+    }
+    manifest = export_assets(
+        groups=groups,
+        raw_images={},
+        output_root=tmp_path,
+        name="hero_jump",
+        request=request,
+    )
+
+    assert manifest.generated_total_frames == 2
+    assert manifest.total_frames == 4
+    assert set(manifest.frame_paths) == {
+        "jump_south_east",
+        "jump_north_east",
+        "jump_south_west",
+        "jump_north_west",
+    }
+    assert manifest.mirrored_groups == {
+        "jump_south_west": "jump_south_east",
+        "jump_north_west": "jump_north_east",
+    }
+    assert set(manifest.generated_frame_paths) == {
+        "jump_south_east",
+        "jump_north_east",
+    }

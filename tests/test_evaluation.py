@@ -8,6 +8,7 @@ import statistics
 
 import pytest
 
+from pixel_magic.evaluation.cost import estimate_run_cost
 from pixel_magic.evaluation.cases import EvalCase, get_standard_cases
 from pixel_magic.evaluation.judge import DIMENSIONS, JudgeResult, PixelArtJudge
 from pixel_magic.evaluation.metrics import (
@@ -257,3 +258,34 @@ class TestReport:
         md = generate_report([run])
         assert "Cohen's d" in md
         assert "95% CI" in md
+
+
+class TestCostEstimation:
+    def test_estimate_run_cost_uses_agent_generation_bucket(self):
+        run = EvalRun(variant_label="agent", model_name="gpt-image-1")
+        run.records.append(
+            EvalRunRecord(
+                case_name="agent_case",
+                template_name="character_animation",
+                variant_label="agent",
+                model_used="gpt-image-1",
+                prompt_rendered="prompt",
+                judge=_make_judge_result(overall=0.8),
+                generation_time_s=1.2,
+                generation_metadata={
+                    "mode": "agent",
+                    "usage": {
+                        "generation": {
+                            "model": "gpt-image-1",
+                            "input_tokens": 100,
+                            "output_tokens": 200,
+                        }
+                    },
+                },
+            )
+        )
+
+        summary = estimate_run_cost(run)
+        assert summary["total_input_tokens"] == 100
+        assert summary["total_output_tokens"] == 200
+        assert summary["estimated_cost_usd"] > 0

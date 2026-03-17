@@ -113,8 +113,8 @@ def enforce_outline(
     opaque = alpha > 128
     outline_mask = np.zeros_like(opaque)
 
-    # Find edge pixels: transparent pixels adjacent to opaque pixels
-    for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+    # Find edge pixels: transparent pixels adjacent to opaque pixels (8-connected)
+    for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)]:
         shifted = np.zeros_like(opaque)
         src_y = slice(max(0, -dy), h - max(0, dy))
         src_x = slice(max(0, -dx), w - max(0, dx))

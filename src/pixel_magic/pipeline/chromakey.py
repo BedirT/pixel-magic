@@ -10,7 +10,7 @@ from PIL import Image
 
 # HSV ranges for supported chromakey colors (OpenCV scale: H 0-180, S/V 0-255)
 _CHROMAKEY_HSV_RANGES: dict[str, tuple[tuple[int, int], int, int]] = {
-    "green": ((35, 85), 200, 200),  # pure saturated bright green only
+    "green": ((30, 90), 100, 150),  # relaxed for AI-generated greens, preserves dark greens
     "blue": ((100, 130), 200, 200),  # pure saturated bright blue only
 }
 

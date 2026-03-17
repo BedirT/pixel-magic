@@ -23,7 +23,8 @@ RUN uv pip install --system --no-cache \
     "openai-agents>=0.1.0" \
     "opentelemetry-sdk>=1.21.0" \
     "opentelemetry-exporter-otlp-proto-http>=0.42.0" \
-    "openinference-instrumentation-openai>=0.1.0"
+    "openinference-instrumentation-openai>=0.1.0" \
+    "openinference-instrumentation-google-genai>=0.1.0"
 
 # Copy source code
 COPY src/ src/

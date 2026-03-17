@@ -7,6 +7,12 @@ from typing import Any
 
 from agents import RunContextWrapper, function_tool
 
+from pixel_magic.generation.prompt_library._shared import (
+    background_instruction,
+    background_rule,
+    framing_rules,
+)
+from pixel_magic.generation.prompts import PromptBuilder
 from pixel_magic.workflow.models import (
     AssetType,
     CorrectionPatch,
@@ -65,12 +71,29 @@ def _normalize_animation_specs(request: GenerationRequest) -> list[dict[str, Any
     ]
 
 
-def _bg_text(provider: str, chromakey_color: str = "green") -> str:
-    """Return the background instruction for a given provider."""
-    if provider == "gemini":
-        hex_c = "#00FF00" if chromakey_color == "green" else "#0000FF"
-        return f"Entire image background must be solid {chromakey_color} ({hex_c}) — every non-sprite pixel exactly {hex_c}, no transparency."
-    return "Entire image background must be fully transparent — every non-sprite pixel alpha=0."
+# Lazy singleton for prompt builder
+_prompt_builder: PromptBuilder | None = None
+
+
+def _get_prompt_builder() -> PromptBuilder:
+    global _prompt_builder
+    if _prompt_builder is None:
+        _prompt_builder = PromptBuilder()
+    return _prompt_builder
+
+
+def _template_vars(
+    provider: str, chromakey_color: str, request: GenerationRequest,
+) -> dict[str, str]:
+    """Common template variables for all asset types."""
+    return {
+        "background_instruction": background_instruction(provider, chromakey_color),
+        "background_rule": background_rule(provider, chromakey_color),
+        "style": request.style,
+        "resolution": request.resolution,
+        "max_colors": str(request.max_colors),
+        "palette_hint": request.parameters.get("palette_hint", ""),
+    }
 
 
 def build_plan_from_request(
@@ -78,36 +101,39 @@ def build_plan_from_request(
     provider: str = "openai",
     chromakey_color: str = "green",
 ) -> ExecutionPlan:
-    """Deterministic fallback plan builder used by both agents and executor tests."""
+    """Build execution plan using rich prompt templates from prompt_library."""
     prompts: list[PlannedPrompt] = []
     expected_total = 0
-    bg = _bg_text(provider, chromakey_color)
+    pb = _get_prompt_builder()
+    base_vars = _template_vars(provider, chromakey_color, request)
 
     if request.asset_type == AssetType.CHARACTER:
-        direction_mode = int(request.parameters.get("direction_mode", 4))
-        dirs = _direction_names(direction_mode)
-        animations = _normalize_animation_specs(request)
         extension_mode = bool(request.parameters.get("extension_mode", False))
         external_reference_paths = request.parameters.get("external_reference_paths", [])
         if not isinstance(external_reference_paths, list):
             external_reference_paths = []
 
         if extension_mode:
+            # Extension mode: generate animation strips using reference image
+            direction_mode = int(request.parameters.get("direction_mode", 4))
+            dirs = _direction_names(direction_mode)
+            animations = _normalize_animation_specs(request)
+            tpl_name = "character_custom_animation"
             for anim in animations:
                 for direction in dirs:
+                    prompt_text = pb.render(
+                        tpl_name,
+                        **base_vars,
+                        character_description=request.objective,
+                        animation_name=anim["name"],
+                        animation_description=anim["description"],
+                        frame_count=str(anim["frame_count"]),
+                        direction=direction,
+                    )
                     prompts.append(
                         PlannedPrompt(
                             key=f"{anim['name']}_{direction}",
-                            prompt=(
-                                f"Horizontal strip of {anim['frame_count']} frames. "
-                                f"Character objective: {request.objective}. "
-                                f"Animation: {anim['name']} ({anim['description']}). "
-                                f"Direction: {direction}. Style: {request.style}. "
-                                f"Resolution per frame: {request.resolution}. "
-                                f"Max colors: {request.max_colors}. "
-                                "Same character identity as provided reference image. "
-                                f"{bg} No anti-aliasing."
-                            ),
+                            prompt=prompt_text,
                             expected_frames=int(anim["frame_count"]),
                             layout="horizontal_strip",
                             external_reference_paths=[
@@ -121,60 +147,50 @@ def build_plan_from_request(
                 expected_total_frames=max(expected_total, 1),
                 planned_prompts=prompts,
                 qa_min_score=0.7,
-                notes="Deterministic extension-mode plan",
+                notes="Extension-mode plan using prompt templates",
             )
 
-        for direction in dirs:
+        # Simple: 2 single-direction images (SE + NE), mirrored to 4 in export
+        _char_directions = [
+            ("south_east", "body angled toward bottom-right of screen, classic front-facing isometric view — you see the character's face and chest"),
+            ("north_east", "body angled toward top-right of screen, back view — you see the character's back and top of head"),
+        ]
+        for i, (direction, desc) in enumerate(_char_directions):
+            prompt_text = pb.render(
+                "character_single_direction",
+                **base_vars,
+                character_description=request.objective,
+                direction=direction,
+                direction_description=desc,
+            )
             prompts.append(
                 PlannedPrompt(
-                    key=f"base_{direction}",
-                    prompt=(
-                        f"Single pixel art character sprite. Objective: {request.objective}. "
-                        f"Direction: {direction}. Style: {request.style}. "
-                        f"Resolution: {request.resolution}. Max colors: {request.max_colors}. "
-                        f"{bg} No anti-aliasing."
-                    ),
+                    key=f"pose_{direction}",
+                    prompt=prompt_text,
                     expected_frames=1,
                     layout="horizontal_strip",
                 )
             )
             expected_total += 1
 
-        for anim in animations:
-            for direction in dirs:
-                prompts.append(
-                    PlannedPrompt(
-                        key=f"{anim['name']}_{direction}",
-                        prompt=(
-                            f"Horizontal strip of {anim['frame_count']} frames. "
-                            f"Character objective: {request.objective}. "
-                            f"Animation: {anim['name']} ({anim['description']}). "
-                            f"Direction: {direction}. Style: {request.style}. "
-                            f"Resolution per frame: {request.resolution}. "
-                            f"Max colors: {request.max_colors}. "
-                            f"{bg} No anti-aliasing."
-                        ),
-                        expected_frames=int(anim["frame_count"]),
-                        layout="horizontal_strip",
-                        reference_key=f"base_{direction}",
-                    )
-                )
-                expected_total += int(anim["frame_count"])
-
     elif request.asset_type == AssetType.TILESET:
         tile_types = request.parameters.get("tile_types", [])
         if not isinstance(tile_types, list):
             tile_types = [str(tile_types)]
         count = max(1, len(tile_types))
+        prompt_text = pb.render(
+            "tileset_ground",
+            **base_vars,
+            biome=request.objective,
+            tile_types=", ".join(str(t) for t in tile_types),
+            count=str(count),
+            tile_width=str(request.parameters.get("tile_width", 64)),
+            tile_height=str(request.parameters.get("tile_height", 32)),
+        )
         prompts.append(
             PlannedPrompt(
                 key="tileset_batch",
-                prompt=(
-                    f"Horizontal strip of {count} isometric tiles. Objective: {request.objective}. "
-                    f"Tile types: {', '.join(str(t) for t in tile_types)}. "
-                    f"Style: {request.style}. Max colors: {request.max_colors}. "
-                    f"{bg} Clean pixel edges."
-                ),
+                prompt=prompt_text,
                 expected_frames=count,
                 layout="horizontal_strip",
             )
@@ -186,15 +202,17 @@ def build_plan_from_request(
         if not isinstance(descriptions, list):
             descriptions = [str(descriptions)]
         count = max(1, len(descriptions))
+        prompt_text = pb.render(
+            "item_icons_batch",
+            **base_vars,
+            item_descriptions=", ".join(str(d) for d in descriptions),
+            count=str(count),
+            view=request.parameters.get("view", "front-facing icon"),
+        )
         prompts.append(
             PlannedPrompt(
                 key="items_batch",
-                prompt=(
-                    f"Horizontal strip of {count} item sprites. Objective: {request.objective}. "
-                    f"Items: {', '.join(str(d) for d in descriptions)}. "
-                    f"Style: {request.style}. Resolution per item: {request.resolution}. "
-                    f"Max colors: {request.max_colors}. {bg}"
-                ),
+                prompt=prompt_text,
                 expected_frames=count,
                 layout="horizontal_strip",
             )
@@ -204,15 +222,17 @@ def build_plan_from_request(
     elif request.asset_type == AssetType.EFFECT:
         frame_count = int(request.parameters.get("frame_count", request.expected_frames))
         frame_count = max(1, frame_count)
+        prompt_text = pb.render(
+            "effect_animation",
+            **base_vars,
+            effect_description=request.objective,
+            frame_count=str(frame_count),
+            color_emphasis=request.parameters.get("color_emphasis", ""),
+        )
         prompts.append(
             PlannedPrompt(
                 key="effect_anim",
-                prompt=(
-                    f"Horizontal strip of {frame_count} effect frames. "
-                    f"Objective: {request.objective}. "
-                    f"Style: {request.style}. Resolution per frame: {request.resolution}. "
-                    f"Max colors: {request.max_colors}. {bg}"
-                ),
+                prompt=prompt_text,
                 expected_frames=frame_count,
                 layout="horizontal_strip",
             )
@@ -224,15 +244,16 @@ def build_plan_from_request(
         if not isinstance(descriptions, list):
             descriptions = [str(descriptions)]
         count = max(1, len(descriptions))
+        prompt_text = pb.render(
+            "ui_elements_batch",
+            **base_vars,
+            element_descriptions=", ".join(str(d) for d in descriptions),
+            count=str(count),
+        )
         prompts.append(
             PlannedPrompt(
                 key="ui_batch",
-                prompt=(
-                    f"Horizontal strip of {count} UI elements. Objective: {request.objective}. "
-                    f"Elements: {', '.join(str(d) for d in descriptions)}. "
-                    f"Style: {request.style}. Resolution: {request.resolution}. "
-                    f"Max colors: {request.max_colors}. {bg}"
-                ),
+                prompt=prompt_text,
                 expected_frames=count,
                 layout="horizontal_strip",
             )
@@ -240,14 +261,18 @@ def build_plan_from_request(
         expected_total += count
 
     else:
+        prompt_text = pb.render(
+            "custom_generation",
+            **base_vars,
+            description=request.objective,
+        ) if pb.get("custom_generation") else (
+            f"{request.objective}. Style: {request.style}. "
+            f"Resolution: {request.resolution}. Max colors: {request.max_colors}."
+        )
         prompts.append(
             PlannedPrompt(
                 key="custom",
-                prompt=(
-                    f"{request.objective}. Style: {request.style}. "
-                    f"Resolution: {request.resolution}. Max colors: {request.max_colors}. "
-                    f"{bg}"
-                ),
+                prompt=prompt_text,
                 expected_frames=request.expected_frames,
                 layout=request.layout,
             )
@@ -259,7 +284,7 @@ def build_plan_from_request(
         expected_total_frames=max(expected_total, 1),
         planned_prompts=prompts,
         qa_min_score=0.7,
-        notes="Deterministic fallback plan",
+        notes="Plan using prompt templates",
     )
 
 

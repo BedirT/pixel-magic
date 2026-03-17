@@ -40,7 +40,9 @@ async def cmd_run(args: argparse.Namespace) -> None:
     from pixel_magic.evaluation.metrics import aggregate_results
     from pixel_magic.evaluation.runner import EvalRunner
     from pixel_magic.generation.prompts import PromptBuilder
+    from pixel_magic.tracing import init_tracing
 
+    init_tracing()
     settings = Settings()
 
     # CLI flag overrides .env provider

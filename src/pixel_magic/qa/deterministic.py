@@ -171,6 +171,24 @@ def check_frame_size_consistency(frames: list[Image.Image]) -> QACheck:
     )
 
 
+def check_requested_frame_size(
+    frames: list[Image.Image],
+    expected_size: tuple[int, int],
+) -> QACheck:
+    """Check all frames match the requested output resolution exactly."""
+    if not frames:
+        return QACheck(QACheckName.REQUESTED_FRAME_SIZE, True, 1.0, "0 frames")
+
+    unique_sizes = {(frame.width, frame.height) for frame in frames}
+    passed = unique_sizes == {expected_size}
+    return QACheck(
+        QACheckName.REQUESTED_FRAME_SIZE,
+        passed,
+        1.0 if passed else 0.0,
+        f"Expected {expected_size}, got {sorted(unique_sizes)}",
+    )
+
+
 def check_palette_delta(
     frames: list[Image.Image],
     max_delta_e: float = 5.0,
@@ -239,8 +257,10 @@ def run_deterministic_qa(
     alpha_policy: str = "binary",
     macro_size: int = 1,
     expected_frame_count: int | None = None,
+    expected_frame_size: tuple[int, int] | None = None,
     min_island_size: int = 2,
     clip: AnimationClip | None = None,
+    skip_palette_delta: bool = False,
 ) -> QAReport:
     """Run all applicable deterministic QA checks and return a report."""
     report = QAReport()
@@ -266,8 +286,11 @@ def run_deterministic_qa(
     if len(frames) > 1:
         report.checks.append(check_frame_size_consistency(frames))
 
-        if palette:
+        if palette and not skip_palette_delta:
             report.checks.append(check_palette_delta(frames))
+
+    if expected_frame_size is not None:
+        report.checks.append(check_requested_frame_size(frames, expected_frame_size))
 
     if clip:
         report.checks.append(check_anim_flicker(clip))

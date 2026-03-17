@@ -12,6 +12,7 @@ _FRAMING_BASE = (
     "- The magenta separator must span the FULL height of the image\n"
     "- Do NOT place magenta lines at the left or right edges — only BETWEEN sprites\n"
     "- Do NOT use magenta (#FF00FF) anywhere else in the artwork\n"
+    "- ${background_rule}\n"
 )
 
 
@@ -41,5 +42,5 @@ def background_rule(provider: str = "openai", chromakey_color: str = "green") ->
     return "The ENTIRE image background MUST be fully transparent (alpha=0) — no solid fill, no shadows, no floor"
 
 
-# Default (OpenAI/transparent) for backwards compatibility
-FRAMING_RULES = framing_rules("openai")
+# Template-variable version: uses ${background_rule} so it adapts per-provider at render time
+FRAMING_RULES = _FRAMING_BASE

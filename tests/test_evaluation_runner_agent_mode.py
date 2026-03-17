@@ -81,7 +81,7 @@ def _items_case() -> EvalCase:
 
 @pytest.mark.asyncio
 async def test_run_case_agent_success(tmp_path):
-    settings = Settings(output_dir=tmp_path, prompts_dir=Path("prompts"), OPENAI_API_KEY="")
+    settings = Settings(output_dir=tmp_path, prompts_dir=Path("prompts"), OPENAI_API_KEY="", enforce_outline=False)
     runner = EvalRunner(
         provider=DummyProvider(),
         prompts=PromptBuilder(),
@@ -99,8 +99,27 @@ async def test_run_case_agent_success(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_run_case_agent_preserves_generation_usage(tmp_path):
+    settings = Settings(output_dir=tmp_path, prompts_dir=Path("prompts"), OPENAI_API_KEY="", enforce_outline=False)
+    runner = EvalRunner(
+        provider=DummyProvider(),
+        prompts=PromptBuilder(),
+        settings=settings,
+        judge=DummyJudge(),
+        output_dir=tmp_path / "eval",
+    )
+
+    record = await runner.run_case_agent(_items_case(), variant_label="agent_usage")
+    usage = record.generation_metadata["usage"]["generation"]
+
+    assert usage["calls"] >= 1
+    assert usage["entries"]
+    assert usage["entries"][0]["provider"]
+
+
+@pytest.mark.asyncio
 async def test_run_case_agent_failure_from_gate(tmp_path):
-    settings = Settings(output_dir=tmp_path, prompts_dir=Path("prompts"), OPENAI_API_KEY="")
+    settings = Settings(output_dir=tmp_path, prompts_dir=Path("prompts"), OPENAI_API_KEY="", enforce_outline=False)
     runner = EvalRunner(
         provider=DummyProvider(bad_alpha=True),
         prompts=PromptBuilder(),

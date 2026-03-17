@@ -124,27 +124,10 @@ class AgentRuntime:
 
     async def route_and_plan(self, request: GenerationRequest) -> tuple[ExecutionPlan, str]:
         """Route request via handoff and return planner output."""
-        if not self._enabled:
-            return build_plan_from_request(request, self.provider, self.chromakey_color), "deterministic_fallback"
-
-        context = AgentToolContext(
-            request=request, provider=self.provider, chromakey_color=self.chromakey_color,
-        )
-        payload = json.dumps(request.model_dump(), indent=2)
-        output, last_agent_name = await self._run_agent(
-            self._router,
-            (
-                "Route and plan this request. "
-                "Use a specialist planner handoff and return an ExecutionPlan.\n\n"
-                f"{payload}"
-            ),
-            context=context,
-            max_turns=12,
-        )
-
-        if isinstance(output, ExecutionPlan):
-            return output, last_agent_name
-        return build_plan_from_request(request, self.provider, self.chromakey_color), "fallback_due_to_unstructured_output"
+        # Always use deterministic planning — agent planner overwrites
+        # prompt templates (background, perspective, framing rules, etc.)
+        # which produces worse results than our hand-crafted templates.
+        return build_plan_from_request(request, self.provider, self.chromakey_color), "deterministic"
 
     async def plan_correction(
         self,
@@ -171,16 +154,23 @@ class AgentRuntime:
             "plan": plan.model_dump(),
             "validation_packet": packet.model_dump(),
         }
-        output, _ = await self._run_agent(
-            self._correction,
-            (
-                "Generate a minimal CorrectionPatch from this payload. "
-                "Do not output prose.\n\n"
-                f"{json.dumps(payload, indent=2)}"
-            ),
-            context=context,
-            max_turns=8,
-        )
+        try:
+            output, _ = await self._run_agent(
+                self._correction,
+                (
+                    "Generate a minimal CorrectionPatch from this payload. "
+                    "Do not output prose.\n\n"
+                    f"{json.dumps(payload, indent=2)}"
+                ),
+                context=context,
+                max_turns=8,
+            )
+        except Exception:
+            return CorrectionPatch(
+                prompt_suffix=retry_instructions.strip(),
+                append_constraints=["Improve consistency and readability."],
+                notes="fallback_due_to_agent_error",
+            )
 
         if isinstance(output, CorrectionPatch):
             return output
@@ -205,15 +195,25 @@ class AgentRuntime:
             provider=self.provider, chromakey_color=self.chromakey_color,
         )
         payload = json.dumps(packet.model_dump(), indent=2)
-        output, _ = await self._run_agent(
-            self._validator,
-            (
-                "Review this validation packet and return FinalValidationDecision.\n\n"
-                f"{payload}"
-            ),
-            context=context,
-            max_turns=8,
-        )
+        try:
+            output, _ = await self._run_agent(
+                self._validator,
+                (
+                    "Review this validation packet and return FinalValidationDecision.\n\n"
+                    f"{payload}"
+                ),
+                context=context,
+                max_turns=8,
+            )
+        except Exception:
+            default = default_final_decision(packet)
+            if packet.deterministic_gate.passed:
+                default["decision"] = FinalDecision.RETRY
+                default["retry_instructions"] = (
+                    "Tighten frame separation and improve visual consistency while preserving style."
+                )
+            default["notes"] = "fallback_due_to_agent_error"
+            return FinalValidationDecision(**default)
         if isinstance(output, FinalValidationDecision):
             return output
 

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from pixel_magic.workflow.models import ArtifactManifest
+from pixel_magic.workflow.models import ArtifactManifest, GenerationRequest
 
 
 def _safe_name(value: str) -> str:
@@ -42,12 +42,55 @@ def _pack_atlas(groups: dict[str, list[Image.Image]]) -> Image.Image:
     return atlas
 
 
+def _mirror_pairs(direction_mode: int) -> dict[str, str]:
+    pairs = {
+        "south_east": "south_west",
+        "north_east": "north_west",
+    }
+    if direction_mode == 8:
+        pairs["east"] = "west"
+    return pairs
+
+
+def _materialize_export_groups(
+    groups: dict[str, list[Image.Image]],
+    request: GenerationRequest | None,
+) -> tuple[dict[str, list[Image.Image]], dict[str, str]]:
+    export_groups = {key: list(frames) for key, frames in groups.items()}
+    mirrored_groups: dict[str, str] = {}
+
+    if request is None or request.asset_type.value != "character":
+        return export_groups, mirrored_groups
+
+    direction_mode = int(request.parameters.get("direction_mode", 4))
+    mirror_pairs = _mirror_pairs(direction_mode)
+    source_directions = sorted(mirror_pairs, key=len, reverse=True)
+
+    for group_name, frames in groups.items():
+        for source_direction in source_directions:
+            suffix = f"_{source_direction}"
+            if not group_name.endswith(suffix):
+                continue
+            target_direction = mirror_pairs[source_direction]
+            mirrored_name = f"{group_name[:-len(source_direction)]}{target_direction}"
+            if mirrored_name not in export_groups:
+                export_groups[mirrored_name] = [
+                    frame.transpose(Image.FLIP_LEFT_RIGHT)
+                    for frame in frames
+                ]
+                mirrored_groups[mirrored_name] = group_name
+            break
+
+    return export_groups, mirrored_groups
+
+
 def export_assets(
     *,
     groups: dict[str, list[Image.Image]],
     raw_images: dict[str, Image.Image],
     output_root: Path,
     name: str,
+    request: GenerationRequest | None = None,
 ) -> ArtifactManifest:
     """Export raw composites, cleaned frames, atlas, and metadata."""
     safe_name = _safe_name(name)
@@ -60,6 +103,9 @@ def export_assets(
 
     raw_paths: dict[str, str] = {}
     frame_paths: dict[str, list[str]] = {}
+    generated_total_frames = sum(len(frames) for frames in groups.values())
+    generated_groups = {key: len(frames) for key, frames in groups.items()}
+    export_groups, mirrored_groups = _materialize_export_groups(groups, request)
 
     for key, image in raw_images.items():
         raw_path = raw_dir / f"{_safe_name(key)}.png"
@@ -67,7 +113,7 @@ def export_assets(
         raw_paths[key] = str(raw_path)
 
     total_frames = 0
-    for group_name, frames in groups.items():
+    for group_name, frames in export_groups.items():
         paths: list[str] = []
         safe_group = _safe_name(group_name)
         for idx, frame in enumerate(frames):
@@ -77,14 +123,23 @@ def export_assets(
             total_frames += 1
         frame_paths[group_name] = paths
 
-    atlas = _pack_atlas(groups)
+    generated_frame_paths = {
+        key: list(frame_paths.get(key, []))
+        for key in groups
+    }
+
+    atlas = _pack_atlas(export_groups)
     atlas_path = output_dir / f"{safe_name}_atlas.png"
     atlas.save(atlas_path)
 
     metadata = {
         "name": safe_name,
+        "generated_total_frames": generated_total_frames,
         "total_frames": total_frames,
-        "groups": {k: len(v) for k, v in groups.items()},
+        "generated_groups": generated_groups,
+        "groups": {k: len(v) for k, v in export_groups.items()},
+        "generated_frame_paths": generated_frame_paths,
+        "mirrored_groups": mirrored_groups,
         "raw_paths": raw_paths,
         "frame_paths": frame_paths,
         "atlas_path": str(atlas_path),
@@ -98,5 +153,9 @@ def export_assets(
         metadata_path=str(metadata_path),
         raw_paths=raw_paths,
         frame_paths=frame_paths,
+        generated_frame_paths=generated_frame_paths,
+        generated_groups=generated_groups,
+        mirrored_groups=mirrored_groups,
+        generated_total_frames=generated_total_frames,
         total_frames=total_frames,
     )

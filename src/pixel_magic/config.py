@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     )
 
     # Provider
-    provider: Literal["gemini", "openai"] = "gemini"
+    provider: Literal["gemini", "openai"] = "openai"
 
     # Gemini settings
     google_api_key: str = Field(default="", alias="GOOGLE_API_KEY")
@@ -29,11 +29,11 @@ class Settings(BaseSettings):
     gemini_image_fallback_model: str = "gemini-2.5-flash-image"
     gemini_enable_image_fallback: bool = True
     gemini_fallback_timeout_s: float = 120.0
-    gemini_thinking_level: Literal["minimal", "high"] = "minimal"
+    gemini_thinking_level: Literal["minimal", "medium", "high"] = "medium"
 
     # OpenAI settings
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
-    openai_model: str = "gpt-image-1"
+    openai_model: str = "gpt-image-1.5"
     openai_quality: Literal["low", "medium", "high"] = "medium"
 
     # Agent settings (reasoning model for multi-agent system)
@@ -63,7 +63,7 @@ class Settings(BaseSettings):
     dither_strength: float = 0.3
     min_island_size: int = 2
     max_hole_size: int = 2
-    enforce_outline: bool = False
+    enforce_outline: bool = True
 
     # Export
     atlas_padding: int = 1

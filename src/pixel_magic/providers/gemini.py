@@ -17,7 +17,8 @@ from pixel_magic.providers.base import (
     Session,
 )
 
-from pixel_magic.tracing import get_tracer
+from pixel_magic.tracing import attach_multimodal_input, attach_output_image, get_tracer
+from pixel_magic.usage import build_usage_entry, normalize_usage_metadata
 
 logger = logging.getLogger(__name__)
 _tracer = get_tracer("pixel_magic.providers.gemini")
@@ -29,8 +30,9 @@ RETRY_STATUS_CODES = {429, 500, 503}
 DEFAULT_FALLBACK_IMAGE_MODEL = "gemini-2.5-flash-image"
 DEFAULT_FALLBACK_TIMEOUT_S = 120.0
 
-
 def _image_to_bytes(img: Image.Image, fmt: str = "PNG") -> bytes:
+    import io
+
     buf = io.BytesIO()
     img.save(buf, format=fmt)
     return buf.getvalue()
@@ -89,7 +91,9 @@ class GeminiProvider(ImageProvider):
         self._client = genai.Client(api_key=api_key)
         self._model = model
         self._image_model = image_model
-        self._thinking_level = thinking_level
+        # Map semantic level to integer token budget for ThinkingConfig
+        _level_to_budget = {"minimal": 0, "medium": 8192, "high": 24576}
+        self._thinking_budget: int = _level_to_budget.get(thinking_level, 0)
         self._fallback_image_model = fallback_image_model
         self._enable_fallback = enable_fallback
         self._fallback_after_seconds = max(0.0, fallback_after_seconds)
@@ -122,6 +126,7 @@ class GeminiProvider(ImageProvider):
         with _tracer.start_as_current_span("gemini.generate_image") as span:
             span.set_attribute("llm.prompt_length", len(prompt))
             span.set_attribute("llm.has_references", bool(references))
+            attach_multimodal_input(span, prompt=prompt, reference_images=references)
 
             contents: list = []
             if references:
@@ -133,6 +138,9 @@ class GeminiProvider(ImageProvider):
 
             gen_config = types.GenerateContentConfig(
                 response_modalities=["IMAGE"],
+                image_config=types.ImageConfig(
+                    image_size="1K",
+                ),
             )
             primary_model = self._image_model
             fallback_model = self._fallback_image_model
@@ -154,7 +162,13 @@ class GeminiProvider(ImageProvider):
                 span.set_attribute("llm.duration_s", round(time.monotonic() - t0, 2))
                 span.set_attribute("llm.fallback_used", False)
 
-                metadata = _extract_gemini_metadata(response, primary_model)
+                metadata = _extract_gemini_metadata(
+                    response,
+                    primary_model,
+                    endpoint="models.generate_content",
+                    image_size="1K",
+                    reference_count=len(references or []),
+                )
                 if can_fallback:
                     metadata["fallback"] = {
                         "enabled": True,
@@ -163,12 +177,23 @@ class GeminiProvider(ImageProvider):
                         "fallback_model": fallback_model,
                         "timeout_s": self._fallback_after_seconds,
                     }
-                # Record token usage on span
-                for k, v in metadata.get("usage", {}).items():
+                # Record token usage on span (both custom and OpenInference conventions)
+                normalized = metadata.get("normalized_usage", {})
+                for k, v in normalized.items():
                     span.set_attribute(f"llm.usage.{k}", v)
+                # OpenInference semantic conventions for Phoenix UI
+                span.set_attribute("llm.token_count.prompt", normalized.get("input_tokens", 0))
+                span.set_attribute("llm.token_count.completion", normalized.get("output_tokens", 0))
+                span.set_attribute("llm.token_count.total", normalized.get("total_tokens", 0))
+                # Also record raw Gemini-specific fields
+                raw = metadata.get("raw_usage", {})
+                for k, v in raw.items():
+                    if isinstance(v, int):
+                        span.set_attribute(f"llm.usage.raw.{k}", v)
 
                 image = _extract_image(response)
                 span.set_attribute("llm.output_size", f"{image.width}x{image.height}")
+                attach_output_image(span, image)
                 return GenerationResult(
                     image=image,
                     prompt_used=prompt,
@@ -206,7 +231,13 @@ class GeminiProvider(ImageProvider):
                 )
                 span.set_attribute("llm.duration_s", round(time.monotonic() - t0, 2))
 
-                metadata = _extract_gemini_metadata(response, fallback_model)
+                metadata = _extract_gemini_metadata(
+                    response,
+                    fallback_model,
+                    endpoint="models.generate_content",
+                    image_size="1K",
+                    reference_count=len(references or []),
+                )
                 metadata["fallback"] = {
                     "enabled": True,
                     "used": True,
@@ -215,11 +246,20 @@ class GeminiProvider(ImageProvider):
                     "timeout_s": self._fallback_after_seconds,
                     "primary_error": str(primary_error),
                 }
-                for k, v in metadata.get("usage", {}).items():
+                normalized = metadata.get("normalized_usage", {})
+                for k, v in normalized.items():
                     span.set_attribute(f"llm.usage.{k}", v)
+                span.set_attribute("llm.token_count.prompt", normalized.get("input_tokens", 0))
+                span.set_attribute("llm.token_count.completion", normalized.get("output_tokens", 0))
+                span.set_attribute("llm.token_count.total", normalized.get("total_tokens", 0))
+                raw = metadata.get("raw_usage", {})
+                for k, v in raw.items():
+                    if isinstance(v, int):
+                        span.set_attribute(f"llm.usage.raw.{k}", v)
 
                 image = _extract_image(response)
                 span.set_attribute("llm.output_size", f"{image.width}x{image.height}")
+                attach_output_image(span, image)
                 return GenerationResult(
                     image=image,
                     prompt_used=prompt,
@@ -305,6 +345,9 @@ class GeminiProvider(ImageProvider):
 
         gen_config = types.GenerateContentConfig(
             response_modalities=["IMAGE"],
+            image_config=types.ImageConfig(
+                image_size="1K",
+            ),
         )
 
         chat = self._client.chats.create(
@@ -338,11 +381,30 @@ class GeminiProvider(ImageProvider):
             config=gen_config,
         )
 
+        usage_entry = build_usage_entry(
+            _extract_gemini_metadata(
+                response,
+                self._model,
+                endpoint="models.generate_content",
+                image_size="vision",
+                reference_count=1,
+            ),
+            provider="gemini",
+            model=self._model,
+        )
+
         try:
-            return json.loads(response.text)
+            payload = json.loads(response.text)
+            if isinstance(payload, dict):
+                payload["_usage"] = usage_entry
+            return payload
         except (json.JSONDecodeError, AttributeError):
             logger.warning("Failed to parse Gemini evaluation response as JSON")
-            return {"error": "Failed to parse response", "raw": str(response.text)}
+            return {
+                "error": "Failed to parse response",
+                "raw": str(response.text),
+                "_usage": usage_entry,
+            }
 
     async def close(self) -> None:
         self._client = None
@@ -378,7 +440,14 @@ def _is_retryable_gemini_error(error: Exception) -> bool:
     return False
 
 
-def _extract_gemini_metadata(response, model_used: str) -> dict:
+def _extract_gemini_metadata(
+    response,
+    model_used: str,
+    *,
+    endpoint: str,
+    image_size: str,
+    reference_count: int,
+) -> dict:
     """Extract best-effort usage metadata from Gemini response objects."""
     usage = getattr(response, "usage_metadata", None)
     usage_dict: dict[str, int] = {}
@@ -393,9 +462,36 @@ def _extract_gemini_metadata(response, model_used: str) -> dict:
             value = getattr(usage, key, None)
             if isinstance(value, int):
                 usage_dict[key] = value
+        # Also capture any additional image-related token fields
+        for key in dir(usage):
+            if "token" in key.lower() and not key.startswith("_"):
+                value = getattr(usage, key, None)
+                if isinstance(value, int) and key not in usage_dict:
+                    usage_dict[key] = value
 
-    return {
+    # If Gemini returns zero tokens (common for pure image generation),
+    # estimate based on prompt length and image output
+    if usage_dict.get("total_token_count", 0) == 0 and usage_dict.get("prompt_token_count", 0) == 0:
+        logger.debug(
+            "Gemini returned zero token counts for model %s — "
+            "image generation models may not report token usage",
+            model_used,
+        )
+
+    metadata = {
         "provider": "gemini",
         "model": model_used,
+        "endpoint": endpoint,
+        "image_size": image_size,
+        "reference_count": reference_count,
         "usage": usage_dict,
+        "raw_usage": usage_dict,
     }
+    metadata["normalized_usage"] = normalize_usage_metadata(metadata, provider="gemini")
+    metadata["cost_inputs"] = {
+        "provider": "gemini",
+        "model": model_used,
+        **metadata["normalized_usage"],
+    }
+
+    return metadata

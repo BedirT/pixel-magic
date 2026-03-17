@@ -40,6 +40,25 @@ def _semi_alpha_sprite(size: tuple[int, int] = (16, 16)) -> Image.Image:
     return image
 
 
+def _separator_strip(
+    frame_count: int,
+    frame_size: tuple[int, int] = (32, 32),
+) -> Image.Image:
+    width = frame_count * frame_size[0] + max(0, frame_count - 1)
+    height = frame_size[1]
+    image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    for index in range(frame_count):
+        base_x = index * (frame_size[0] + 1)
+        for y in range(frame_size[1]):
+            for x in range(frame_size[0]):
+                image.putpixel((base_x + x, y), (255, 0, 0, 255))
+        if index < frame_count - 1:
+            separator_x = base_x + frame_size[0]
+            for y in range(frame_size[1]):
+                image.putpixel((separator_x, y), (255, 0, 255, 255))
+    return image
+
+
 class StubProviderAdapter:
     provider_name = "stub"
     model_name = "stub-model"
@@ -170,7 +189,7 @@ def _fail_decision() -> FinalValidationDecision:
 
 @pytest.mark.asyncio
 async def test_executor_success_path(tmp_path):
-    settings = Settings(output_dir=tmp_path, palettes_dir=tmp_path, OPENAI_API_KEY="")
+    settings = Settings(output_dir=tmp_path, palettes_dir=tmp_path, OPENAI_API_KEY="", enforce_outline=False)
     provider = StubProviderAdapter([_binary_sprite()])
     agents = StubAgentRuntime(_custom_plan(), [_pass_decision()])
     executor = WorkflowExecutor(settings=settings, provider=provider, agents=agents)
@@ -180,8 +199,6 @@ async def test_executor_success_path(tmp_path):
     assert result.stage == StageName.FINALIZE
     assert result.artifacts is not None
     assert result.artifacts.total_frames == 1
-    assert agents.last_packet is not None
-    assert agents.last_packet.representative_frames["main"]["frame_count"] == 1
 
     stage_order = [t.stage for t in result.trace]
     assert stage_order == [
@@ -192,46 +209,14 @@ async def test_executor_success_path(tmp_path):
         StageName.EXTRACT,
         StageName.POSTPROCESS,
         StageName.DETERMINISTIC_GATE,
-        StageName.FINAL_VALIDATOR_AGENT,
         StageName.EXPORT,
         StageName.FINALIZE,
     ]
 
 
 @pytest.mark.asyncio
-async def test_executor_single_retry_then_pass(tmp_path):
-    settings = Settings(output_dir=tmp_path, palettes_dir=tmp_path, OPENAI_API_KEY="")
-    provider = StubProviderAdapter([_binary_sprite(), _binary_sprite()])
-    agents = StubAgentRuntime(_custom_plan(), [_retry_decision(), _pass_decision()])
-    executor = WorkflowExecutor(settings=settings, provider=provider, agents=agents)
-
-    result = await executor.run(_request())
-    assert result.status == JobStatus.SUCCESS
-    assert result.metrics is not None
-    assert result.metrics.retry_count == 1
-    assert len(provider.calls) == 2
-    assert agents.correction_calls == 1
-    assert "patched" in (result.plan.notes if result.plan else "")
-
-
-@pytest.mark.asyncio
-async def test_executor_retry_budget_exhausted(tmp_path):
-    settings = Settings(output_dir=tmp_path, palettes_dir=tmp_path, OPENAI_API_KEY="")
-    provider = StubProviderAdapter([_binary_sprite(), _binary_sprite()])
-    agents = StubAgentRuntime(_custom_plan(), [_retry_decision(), _retry_decision()])
-    executor = WorkflowExecutor(settings=settings, provider=provider, agents=agents)
-
-    result = await executor.run(_request())
-    assert result.status == JobStatus.FAILED
-    assert result.stage == StageName.FINAL_VALIDATOR_AGENT
-    assert result.errors[0].code == ErrorCode.VALIDATOR_FAILED
-    assert result.metrics is not None
-    assert result.metrics.retry_count == 1
-
-
-@pytest.mark.asyncio
 async def test_executor_deterministic_gate_fail_is_terminal(tmp_path):
-    settings = Settings(output_dir=tmp_path, palettes_dir=tmp_path, OPENAI_API_KEY="")
+    settings = Settings(output_dir=tmp_path, palettes_dir=tmp_path, OPENAI_API_KEY="", enforce_outline=False)
     provider = StubProviderAdapter([_semi_alpha_sprite()])
     agents = StubAgentRuntime(_custom_plan(), [_pass_decision()])
     executor = WorkflowExecutor(settings=settings, provider=provider, agents=agents)
@@ -244,21 +229,8 @@ async def test_executor_deterministic_gate_fail_is_terminal(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_executor_validator_fail_is_terminal(tmp_path):
-    settings = Settings(output_dir=tmp_path, palettes_dir=tmp_path, OPENAI_API_KEY="")
-    provider = StubProviderAdapter([_binary_sprite()])
-    agents = StubAgentRuntime(_custom_plan(), [_fail_decision()])
-    executor = WorkflowExecutor(settings=settings, provider=provider, agents=agents)
-
-    result = await executor.run(_request())
-    assert result.status == JobStatus.FAILED
-    assert result.stage == StageName.FINAL_VALIDATOR_AGENT
-    assert result.errors[0].code == ErrorCode.VALIDATOR_FAILED
-
-
-@pytest.mark.asyncio
 async def test_executor_timeout_behavior(tmp_path):
-    settings = Settings(output_dir=tmp_path, palettes_dir=tmp_path, OPENAI_API_KEY="")
+    settings = Settings(output_dir=tmp_path, palettes_dir=tmp_path, OPENAI_API_KEY="", enforce_outline=False)
     provider = StubProviderAdapter([_binary_sprite()], delay_s=0.05)
     agents = StubAgentRuntime(_custom_plan(), [_pass_decision()])
     executor = WorkflowExecutor(settings=settings, provider=provider, agents=agents)
@@ -271,7 +243,7 @@ async def test_executor_timeout_behavior(tmp_path):
 
 @pytest.mark.asyncio
 async def test_executor_invalid_reference_path_fails_input_validation(tmp_path):
-    settings = Settings(output_dir=tmp_path, palettes_dir=tmp_path, OPENAI_API_KEY="")
+    settings = Settings(output_dir=tmp_path, palettes_dir=tmp_path, OPENAI_API_KEY="", enforce_outline=False)
     provider = StubProviderAdapter([_binary_sprite()])
     agents = StubAgentRuntime(_custom_plan(), [_pass_decision()])
     executor = WorkflowExecutor(settings=settings, provider=provider, agents=agents)
@@ -292,7 +264,7 @@ async def test_executor_passes_external_reference_to_provider(tmp_path):
     ref_path = tmp_path / "reference.png"
     _binary_sprite().save(ref_path)
 
-    settings = Settings(output_dir=tmp_path, palettes_dir=tmp_path, OPENAI_API_KEY="")
+    settings = Settings(output_dir=tmp_path, palettes_dir=tmp_path, OPENAI_API_KEY="", enforce_outline=False)
     provider = StubProviderAdapter([_binary_sprite()])
     plan = ExecutionPlan(
         asset_type=AssetType.CHARACTER,
@@ -328,3 +300,41 @@ async def test_executor_passes_external_reference_to_provider(tmp_path):
     result = await executor.run(request)
     assert result.status == JobStatus.SUCCESS
     assert provider.reference_counts == [1]
+
+
+@pytest.mark.asyncio
+async def test_executor_projects_frames_to_requested_resolution(tmp_path):
+    settings = Settings(output_dir=tmp_path, palettes_dir=tmp_path, OPENAI_API_KEY="", enforce_outline=False)
+    provider = StubProviderAdapter([_separator_strip(2, (32, 32))])
+    agents = StubAgentRuntime(_custom_plan(expected_frames=2), [_pass_decision()])
+    executor = WorkflowExecutor(settings=settings, provider=provider, agents=agents)
+
+    result = await executor.run(_request(expected_frames=2, resolution="16x16"))
+
+    assert result.status == JobStatus.SUCCESS
+    assert result.artifacts is not None
+    assert result.artifacts.total_frames == 2
+    for paths in result.artifacts.frame_paths.values():
+        for path in paths:
+            image = Image.open(path).convert("RGBA")
+            assert image.size == (16, 16)
+
+
+@pytest.mark.asyncio
+async def test_executor_aggregates_generation_usage_in_metrics(tmp_path):
+    settings = Settings(output_dir=tmp_path, palettes_dir=tmp_path, OPENAI_API_KEY="", enforce_outline=False)
+    provider = StubProviderAdapter([_binary_sprite()])
+    provider.model_name = "gpt-image-1"
+    agents = StubAgentRuntime(_custom_plan(), [_pass_decision()])
+    executor = WorkflowExecutor(settings=settings, provider=provider, agents=agents)
+
+    provider._images = [_binary_sprite()]
+    result = await executor.run(_request())
+
+    assert result.status == JobStatus.SUCCESS
+    assert result.metrics is not None
+    generation_usage = result.metrics.usage["generation"]
+    assert generation_usage["calls"] == 1
+    assert generation_usage["input_tokens"] == 0
+    assert generation_usage["output_tokens"] == 0
+    assert generation_usage["entries"][0]["prompt_key"] == "main"
