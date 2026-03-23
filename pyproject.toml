@@ -1,7 +1,7 @@
 [project]
 name = "pixel-magic"
 version = "0.1.0"
-description = "AI-powered pixel art sprite generation and conversion pipeline with MCP server"
+description = "AI-powered pixel art sprite generation CLI"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
@@ -9,19 +9,10 @@ license = { text = "MIT" }
 dependencies = [
     "google-genai>=1.0.0",
     "openai>=1.60.0",
-    "mcp[cli]>=1.20.0",
-    "opencv-python-headless>=4.9.0",
     "Pillow>=10.0.0",
-    "scikit-image>=0.22.0",
     "numpy>=1.26.0",
     "pydantic>=2.6.0",
     "pydantic-settings>=2.2.0",
-    "pyyaml>=6.0",
-    "openai-agents>=0.1.0",
-    "opentelemetry-sdk>=1.21.0",
-    "opentelemetry-exporter-otlp-proto-http>=0.42.0",
-    "openinference-instrumentation-openai>=0.1.0",
-    "openinference-instrumentation-google-genai>=0.1.0",
 ]
 
 [project.optional-dependencies]
