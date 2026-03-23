@@ -374,7 +374,7 @@ async def generate_effect(
 async def generate_ui_elements(
     ctx: Context,
     element_descriptions: list[str],
-    resolution: str = "128x128",
+    resolution: str = "160x128",
     style: str = "16-bit RPG UI style",
     max_colors: int = 16,
 ) -> str:
@@ -382,7 +382,7 @@ async def generate_ui_elements(
 
     Args:
         element_descriptions: List of UI element descriptions.
-        resolution: Element resolution (default 128x128 for usable detail).
+        resolution: Element resolution (default 160x128 for more usable panel space).
         style: Pixel art style.
         max_colors: Max palette colors.
 

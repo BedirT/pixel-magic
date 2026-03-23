@@ -60,6 +60,7 @@ class CompositeLayout(str, Enum):
     VERTICAL_STRIP = "vertical_strip"
     GRID = "grid"
     AUTO_DETECT = "auto_detect"
+    REFERENCE_SHEET = "reference_sheet"
 
 
 @dataclass

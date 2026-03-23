@@ -13,6 +13,9 @@ from pixel_magic.generation.prompt_library._shared import (
     framing_rules,
     perspective_rules,
 )
+from pixel_magic.generation.prompt_library.characters import (
+    build_character_sheet_prompt,
+)
 from pixel_magic.generation.prompts import PromptBuilder
 from pixel_magic.workflow.models import (
     AssetType,
@@ -70,6 +73,24 @@ def _normalize_animation_specs(request: GenerationRequest) -> list[dict[str, Any
         {"name": "idle", "frame_count": 4, "description": "breathing idle stance"},
         {"name": "walk", "frame_count": 6, "description": "walk cycle"},
     ]
+
+
+def _effect_phase_hints(frame_count: int) -> list[tuple[str, str]]:
+    """Build phase descriptions and occupancy hints for effect frame sequences."""
+    if frame_count <= 1:
+        return [("a readable top-down burst at peak intensity", "45-70%")]
+
+    hints: list[tuple[str, str]] = []
+    for index in range(frame_count):
+        if index == 0:
+            hints.append(("a compact orb, spark cluster, or rune burst just beginning to ignite", "20-35%"))
+        elif index == frame_count - 1:
+            hints.append(("a dissipating residue with broken fragments and trailing embers", "30-50%"))
+        elif index <= frame_count // 2:
+            hints.append(("the burst expanding outward with strong directional motion and a clear focal core", "45-70%"))
+        else:
+            hints.append(("the effect cooling and breaking apart while staying clearly readable", "40-60%"))
+    return hints
 
 
 # Lazy singleton for prompt builder
@@ -151,28 +172,28 @@ def build_plan_from_request(
                 notes="Extension-mode plan using prompt templates",
             )
 
-        # Simple: 2 single-direction images (SE + NE), mirrored to 4 in export
-        _char_directions = [
-            ("south_east", "body angled toward bottom-right of screen, classic front-facing isometric view — you see the character's face and chest"),
-            ("north_east", "body angled toward top-right of screen, back view — you see the character's back and top of head"),
-        ]
-        for i, (direction, desc) in enumerate(_char_directions):
-            prompt_text = pb.render(
-                "character_single_direction",
-                **base_vars,
-                character_description=request.objective,
-                direction=direction,
-                direction_description=desc,
+        # Multi-view reference sheet: one generation call produces all views
+        direction_mode = int(request.parameters.get("direction_mode", 4))
+        view_count = 2 if direction_mode == 4 else 5
+        prompt_text = build_character_sheet_prompt(
+            character_description=request.objective,
+            direction_mode=direction_mode,
+            style=request.style,
+            resolution=request.resolution,
+            max_colors=request.max_colors,
+            palette_hint=request.parameters.get("palette_hint", ""),
+            provider=provider,
+            chromakey_color=chromakey_color,
+        )
+        prompts.append(
+            PlannedPrompt(
+                key="character_sheet",
+                prompt=prompt_text,
+                expected_frames=view_count,
+                layout="reference_sheet",
             )
-            prompts.append(
-                PlannedPrompt(
-                    key=f"pose_{direction}",
-                    prompt=prompt_text,
-                    expected_frames=1,
-                    layout="horizontal_strip",
-                )
-            )
-            expected_total += 1
+        )
+        expected_total += view_count
 
     elif request.asset_type == AssetType.TILESET:
         tile_types = request.parameters.get("tile_types", [])
@@ -224,44 +245,54 @@ def build_plan_from_request(
         frame_count = int(request.parameters.get("frame_count", request.expected_frames))
         frame_count = max(1, frame_count)
         perspective = request.parameters.get("perspective", "isometric")
-        prompt_text = pb.render(
-            "effect_animation",
-            **base_vars,
-            effect_description=request.objective,
-            frame_count=str(frame_count),
-            color_emphasis=request.parameters.get("color_emphasis", ""),
-            perspective_rules=perspective_rules(perspective),
-        )
-        prompts.append(
-            PlannedPrompt(
-                key="effect_anim",
-                prompt=prompt_text,
-                expected_frames=frame_count,
-                layout="horizontal_strip",
+        phase_hints = _effect_phase_hints(frame_count)
+        previous_key: str | None = None
+        for index, (phase_description, occupancy_hint) in enumerate(phase_hints):
+            key = f"effect_{index:03d}"
+            prompt_text = pb.render(
+                "effect_single_frame",
+                **base_vars,
+                effect_description=request.objective,
+                frame_index=str(index + 1),
+                frame_count=str(frame_count),
+                phase_description=phase_description,
+                occupancy_hint=occupancy_hint,
+                color_emphasis=request.parameters.get("color_emphasis", ""),
+                perspective_rules=perspective_rules(perspective),
             )
-        )
-        expected_total += frame_count
+            prompts.append(
+                PlannedPrompt(
+                    key=key,
+                    prompt=prompt_text,
+                    expected_frames=1,
+                    layout="horizontal_strip",
+                    reference_key=previous_key,
+                )
+            )
+            previous_key = key
+            expected_total += 1
 
     elif request.asset_type == AssetType.UI:
         descriptions = request.parameters.get("descriptions", [])
         if not isinstance(descriptions, list):
             descriptions = [str(descriptions)]
-        count = max(1, len(descriptions))
-        prompt_text = pb.render(
-            "ui_elements_batch",
-            **base_vars,
-            element_descriptions=", ".join(str(d) for d in descriptions),
-            count=str(count),
-        )
-        prompts.append(
-            PlannedPrompt(
-                key="ui_batch",
-                prompt=prompt_text,
-                expected_frames=count,
-                layout="horizontal_strip",
+        if not descriptions:
+            descriptions = ["UI element"]
+        for index, description in enumerate(descriptions):
+            prompt_text = pb.render(
+                "ui_single",
+                **base_vars,
+                element_description=str(description),
             )
-        )
-        expected_total += count
+            prompts.append(
+                PlannedPrompt(
+                    key=f"ui_{index:03d}",
+                    prompt=prompt_text,
+                    expected_frames=1,
+                    layout="horizontal_strip",
+                )
+            )
+            expected_total += 1
 
     else:
         perspective = request.parameters.get("perspective", "isometric")

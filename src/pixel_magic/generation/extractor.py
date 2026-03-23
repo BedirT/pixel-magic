@@ -47,7 +47,9 @@ def extract_frames(
     """
     composite = composite.convert("RGBA")
 
-    if layout == CompositeLayout.AUTO_DETECT:
+    if layout == CompositeLayout.REFERENCE_SHEET:
+        return _extract_reference_sheet(composite, expected_count, provider=provider, chromakey_color=chromakey_color)
+    elif layout == CompositeLayout.AUTO_DETECT:
         return _extract_auto(composite, expected_count, provider=provider, chromakey_color=chromakey_color)
     elif layout == CompositeLayout.HORIZONTAL_STRIP:
         return _extract_smart_strip(composite, expected_count, provider=provider, chromakey_color=chromakey_color)
@@ -136,6 +138,43 @@ def _prepare_composite(
     return _trim_transparent_padding(image)
 
 
+def _extract_reference_sheet(
+    composite: Image.Image,
+    expected_count: int,
+    provider: str = "openai",
+    chromakey_color: str = "green",
+) -> list[Image.Image]:
+    """Extract sprites from a multi-view reference sheet.
+
+    JSON-structured character prompts produce multi-view sheets with transparent
+    backgrounds. Uses connected-component detection to find individual views.
+    """
+    cleaned = _prepare_composite(composite, provider=provider, chromakey_color=chromakey_color)
+
+    # Use connected-component detection
+    frames = _run_component_detection(cleaned, expected_count)
+
+    if len(frames) == expected_count:
+        logger.debug(
+            "Reference sheet: extracted %d views via component detection",
+            expected_count,
+        )
+        return frames
+
+    # Fallback: try grid/strip layouts on the cleaned image
+    grid_frames = _try_grid_layouts(cleaned, expected_count)
+    if grid_frames:
+        return grid_frames
+
+    # Last resort: horizontal strip
+    logger.warning(
+        "Reference sheet: component detection found %d but expected %d, "
+        "falling back to horizontal strip.",
+        len(frames), expected_count,
+    )
+    return _extract_strip(cleaned, expected_count, horizontal=True)
+
+
 def _detect_separator_lines(arr: np.ndarray) -> list[int]:
     """Find columns that are magenta separator lines.
 
@@ -178,8 +217,8 @@ def _group_separator_columns(cols: list[int]) -> list[tuple[int, int]]:
     return groups
 
 
-def _remove_magenta_bleed(frame: Image.Image, margin: int = 2) -> Image.Image:
-    """Zero out residual magenta at the left/right edges of a frame."""
+def _remove_magenta_bleed(frame: Image.Image, margin: int = 4) -> Image.Image:
+    """Zero out residual magenta at the frame edges."""
     arr = np.array(frame)
     h, w = arr.shape[:2]
     if w == 0 or h == 0:
@@ -196,6 +235,14 @@ def _remove_magenta_bleed(frame: Image.Image, margin: int = 2) -> Image.Image:
     # Right edge
     mask_right = is_magenta[:, w - edge:]
     arr[:, w - edge:, 3][mask_right] = 0
+
+    edge_y = min(margin, h)
+    # Top edge
+    mask_top = is_magenta[:edge_y, :]
+    arr[:edge_y, :, 3][mask_top] = 0
+    # Bottom edge
+    mask_bottom = is_magenta[h - edge_y:, :]
+    arr[h - edge_y:, :, 3][mask_bottom] = 0
 
     return Image.fromarray(arr, "RGBA")
 

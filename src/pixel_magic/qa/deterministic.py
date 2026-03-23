@@ -153,6 +153,38 @@ def check_frame_count(actual: int, expected: int) -> QACheck:
     )
 
 
+def check_nonempty_frames(
+    frames: list[Image.Image],
+    min_opaque_pixels: int = 1,
+) -> QACheck:
+    """Check that every frame contains at least some opaque content."""
+    if not frames:
+        return QACheck(QACheckName.FRAME_NONEMPTY, False, 0.0, "No frames to validate")
+
+    empty_indices: list[int] = []
+    for index, frame in enumerate(frames):
+        alpha = np.array(frame)[:, :, 3]
+        opaque_pixels = int(np.sum(alpha > 128))
+        if opaque_pixels < min_opaque_pixels:
+            empty_indices.append(index)
+
+    if empty_indices:
+        score = max(0.0, 1.0 - len(empty_indices) / len(frames))
+        return QACheck(
+            QACheckName.FRAME_NONEMPTY,
+            False,
+            score,
+            f"Frames below {min_opaque_pixels} opaque pixels: {empty_indices}",
+        )
+
+    return QACheck(
+        QACheckName.FRAME_NONEMPTY,
+        True,
+        1.0,
+        f"All {len(frames)} frames contain >= {min_opaque_pixels} opaque pixels",
+    )
+
+
 def check_frame_size_consistency(frames: list[Image.Image]) -> QACheck:
     """Check all frames have identical dimensions."""
     if len(frames) <= 1:
@@ -282,6 +314,9 @@ def run_deterministic_qa(
     # Multi-frame checks
     if expected_frame_count is not None:
         report.checks.append(check_frame_count(len(frames), expected_frame_count))
+
+    if frames:
+        report.checks.append(check_nonempty_frames(frames))
 
     if len(frames) > 1:
         report.checks.append(check_frame_size_consistency(frames))

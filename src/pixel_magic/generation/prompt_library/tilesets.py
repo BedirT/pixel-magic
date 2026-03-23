@@ -28,10 +28,15 @@ register(PromptTemplate(
         "CRITICAL RULES:\n"
         "- A reference image is attached showing the exact grid layout with magenta dividers. "
         "Match this layout precisely — place each tile within the cells shown.\n"
+        "- Every cell MUST contain one fully rendered tile — never leave a cell empty.\n"
+        "- Each diamond should nearly fill its cell: keep the left/right points within 2px of the cell edges, "
+        "and the top/bottom points within 2px of the cell bounds.\n"
+        "- Keep a 1px transparent safety margin so no tile vertex is cropped by the cell edge.\n"
         "- Arrange tiles in a single horizontal row, evenly spaced, in this order: ${tile_types}\n"
         "- Each tile is a flat isometric diamond shape (no 3D objects on top)\n"
         "- All tiles must tile seamlessly with each other at their edges\n"
         "- Consistent lighting direction (top-left light source)\n"
+        "- Any divider or guide marks visible in the reference image are layout guides only and must NOT appear in the final tiles.\n"
         "- ${background_rule} outside the diamond shapes\n"
         "- ZERO anti-aliasing: every pixel edge must be a hard step, no gradients, "
         "no blur, no soft blending between colors\n"
@@ -39,7 +44,9 @@ register(PromptTemplate(
         "\u2014 count your colors carefully\n"
         "- Authentic retro 16-bit rendering: flat-shaded pixel surfaces, 1-pixel outlines\n"
         "- Tiles should have subtle texture variation using pixel-level detail (tiny dots, "
-        "single-pixel highlights) to avoid looking flat"
+        "single-pixel highlights) to avoid looking flat\n"
+        "- Use enough material contrast that each tile type is readable instantly at 64x32\n"
+        "- Each named variant must be immediately recognizable as its stated material (for example, water should read as water rather than crystal or ice)"
         + FRAMING_RULES
     ),
     defaults={

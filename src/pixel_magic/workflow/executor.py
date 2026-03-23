@@ -118,6 +118,16 @@ def _normalize_frame_to_resolution(
     method = "passthrough"
 
     if normalized.width > target_w or normalized.height > target_h:
+        # Pre-binarize alpha at full resolution BEFORE downscaling.
+        # AI models output sprite-body pixels at alpha 224-254 and faint
+        # halo pixels at alpha 1-30.  A low threshold (32) keeps all sprite
+        # content while stripping only the halo — preventing LANCZOS from
+        # blending halo colour into sprite edges during the downscale.
+        if settings.alpha_policy == "binary" and normalized.mode == "RGBA":
+            r, g, b, a = normalized.split()
+            a = a.point(lambda v: 255 if v >= 32 else 0)
+            normalized = Image.merge("RGBA", (r, g, b, a))
+
         scale = min(target_w / normalized.width, target_h / normalized.height)
         resized_size = (
             max(1, round(normalized.width * scale)),
@@ -127,11 +137,11 @@ def _normalize_frame_to_resolution(
             normalized = normalized.resize(resized_size, Image.LANCZOS)
             method = "lanczos_downscale"
 
-            # LANCZOS creates anti-aliased semi-transparent edges — enforce
-            # binary alpha so the deterministic QA gate passes.
+            # LANCZOS reintroduces semi-transparent edge pixels —
+            # binarize again with a low threshold to preserve edges.
             if settings.alpha_policy == "binary" and normalized.mode == "RGBA":
                 r, g, b, a = normalized.split()
-                a = a.point(lambda v: 255 if v >= 128 else 0)
+                a = a.point(lambda v: 255 if v >= 32 else 0)
                 normalized = Image.merge("RGBA", (r, g, b, a))
 
     normalized = _center_on_canvas(normalized, target_size)
@@ -412,12 +422,14 @@ class WorkflowExecutor:
                                 if ref is not None:
                                     refs.append(ref)
                         # Inject grid template for multi-frame generation
-                        if prompt.expected_frames > 1 and target_frame_size:
+                        # (skip for reference_sheet — JSON prompt describes its own layout)
+                        if prompt.expected_frames > 1 and target_frame_size and prompt.layout != "reference_sheet":
                             tw, th = target_frame_size
                             grid_tpl = generate_grid_template(
                                 count=prompt.expected_frames,
                                 cell_w=tw,
                                 cell_h=th,
+                                asset_type=effective_request.asset_type.value,
                             )
                             refs.insert(0, grid_tpl)
                         result = await self.provider.generate(prompt.prompt, refs or None)
@@ -571,7 +583,7 @@ class WorkflowExecutor:
                 return timed_out
             # Skip palette_delta for batch asset types where frames are
             # intentionally different sprites (not animation frames).
-            _batch_types = {AssetType.TILESET, AssetType.ITEMS, AssetType.UI, AssetType.EFFECT}
+            _batch_types = {AssetType.CHARACTER, AssetType.TILESET, AssetType.ITEMS, AssetType.UI, AssetType.EFFECT}
             qa_report = run_deterministic_qa(
                 [f for frames in processed_groups.values() for f in frames],
                 palette=palette,

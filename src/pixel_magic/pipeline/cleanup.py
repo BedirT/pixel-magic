@@ -76,7 +76,7 @@ def fill_holes(image: Image.Image, max_size: int = 2) -> Image.Image:
     alpha = arr[:, :, 3]
     transparent = (alpha <= 128).astype(np.uint8)
 
-    labels = measure.label(transparent, connectivity=1)
+    labels = measure.label(transparent, connectivity=2)
     for region in measure.regionprops(labels):
         if region.area <= max_size:
             coords = region.coords
@@ -89,7 +89,10 @@ def fill_holes(image: Image.Image, max_size: int = 2) -> Image.Image:
                 # Fill with average of surrounding opaque pixels
                 for r, c in coords:
                     neighbors = []
-                    for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                    for dr, dc in [
+                        (-1, 0), (1, 0), (0, -1), (0, 1),
+                        (-1, -1), (-1, 1), (1, -1), (1, 1),
+                    ]:
                         nr, nc = r + dr, c + dc
                         if 0 <= nr < h and 0 <= nc < w and alpha[nr, nc] > 128:
                             neighbors.append(arr[nr, nc, :3])

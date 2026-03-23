@@ -29,7 +29,7 @@ def _make_frame(size: tuple[int, int] = (16, 16), alpha: int = 255) -> Image.Ima
     return image
 
 
-def test_build_plan_character_counts_frames():
+def test_build_plan_character_multiview_sheet_4dir():
     request = GenerationRequest(
         asset_type=AssetType.CHARACTER,
         objective="Ranger with cloak",
@@ -44,16 +44,38 @@ def test_build_plan_character_counts_frames():
     plan = build_plan_from_request(request)
     assert plan.asset_type == AssetType.CHARACTER
     assert plan.expected_total_frames == 2
-    assert [p.key for p in plan.planned_prompts] == [
-        "pose_south_east",
-        "pose_north_east",
-    ]
-    # Each direction is a single-frame image
-    assert plan.planned_prompts[0].expected_frames == 1
-    assert plan.planned_prompts[1].expected_frames == 1
-    # Both directions generate independently (no cross-references)
-    assert plan.planned_prompts[0].reference_key is None
-    assert plan.planned_prompts[1].reference_key is None
+    # Single multi-view sheet instead of separate per-direction calls
+    assert len(plan.planned_prompts) == 1
+    sheet = plan.planned_prompts[0]
+    assert sheet.key == "character_sheet"
+    assert sheet.expected_frames == 2
+    assert sheet.layout == "reference_sheet"
+    # Prompt should be valid JSON
+    prompt_data = json.loads(sheet.prompt)
+    assert prompt_data["purpose"] == "character_sprite_reference_sheet"
+    assert len(prompt_data["views"]) == 2
+
+
+def test_build_plan_character_multiview_sheet_8dir():
+    request = GenerationRequest(
+        asset_type=AssetType.CHARACTER,
+        objective="Knight in armor",
+        style="16-bit RPG",
+        resolution="64x64",
+        max_colors=16,
+        parameters={
+            "direction_mode": 8,
+        },
+    )
+
+    plan = build_plan_from_request(request)
+    assert plan.expected_total_frames == 5
+    assert len(plan.planned_prompts) == 1
+    sheet = plan.planned_prompts[0]
+    assert sheet.expected_frames == 5
+    assert sheet.layout == "reference_sheet"
+    prompt_data = json.loads(sheet.prompt)
+    assert len(prompt_data["views"]) == 5
 
 
 def test_build_plan_character_extension_mode_uses_external_reference():
@@ -103,6 +125,57 @@ def test_apply_patch_to_plan_updates_prompts_and_totals():
     assert "Increase contrast." in patched.planned_prompts[0].prompt
     assert "Keep outlines one-pixel thick." in patched.planned_prompts[0].prompt
     assert "manual correction" in patched.notes
+
+
+def test_build_plan_ui_generates_one_prompt_per_element():
+    request = GenerationRequest(
+        asset_type=AssetType.UI,
+        objective="UI element set: health bar frame, mana orb frame, inventory slot",
+        style="16-bit RPG UI style",
+        resolution="160x128",
+        max_colors=16,
+        expected_frames=3,
+        parameters={"descriptions": ["health bar frame", "mana orb frame", "inventory slot"]},
+    )
+
+    plan = build_plan_from_request(request)
+    assert plan.asset_type == AssetType.UI
+    assert plan.expected_total_frames == 3
+    assert [prompt.key for prompt in plan.planned_prompts] == [
+        "ui_000",
+        "ui_001",
+        "ui_002",
+    ]
+    assert all(prompt.expected_frames == 1 for prompt in plan.planned_prompts)
+
+
+def test_build_plan_effect_generates_chained_single_frame_prompts():
+    request = GenerationRequest(
+        asset_type=AssetType.EFFECT,
+        objective="isometric fireball explosion with expanding flame ring and ember burst",
+        style="16-bit pixel art",
+        resolution="64x64",
+        max_colors=12,
+        expected_frames=4,
+        parameters={"frame_count": 4, "perspective": "isometric", "color_emphasis": "orange, red, yellow"},
+    )
+
+    plan = build_plan_from_request(request)
+    assert plan.asset_type == AssetType.EFFECT
+    assert plan.expected_total_frames == 4
+    assert [prompt.key for prompt in plan.planned_prompts] == [
+        "effect_000",
+        "effect_001",
+        "effect_002",
+        "effect_003",
+    ]
+    assert [prompt.reference_key for prompt in plan.planned_prompts] == [
+        None,
+        "effect_000",
+        "effect_001",
+        "effect_002",
+    ]
+    assert all(prompt.expected_frames == 1 for prompt in plan.planned_prompts)
 
 
 def test_default_final_decision_pass_and_fail():

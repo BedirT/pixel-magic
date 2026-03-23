@@ -14,6 +14,7 @@ class QACheckName(str, Enum):
     GRID_COMPLIANCE = "grid_compliance"
     ISLAND_NOISE = "island_noise"
     FRAME_COUNT_MATCH = "frame_count_match"
+    FRAME_NONEMPTY = "frame_nonempty"
     FRAME_SIZE_CONSISTENCY = "frame_size_consistency"
     REQUESTED_FRAME_SIZE = "requested_frame_size"
     PALETTE_DELTA = "palette_delta"

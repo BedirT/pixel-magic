@@ -1,8 +1,125 @@
 """Character sprite prompt templates."""
 
+from __future__ import annotations
+
+import json
+from typing import Any
+
 from pixel_magic.generation.prompt_library import register
 from pixel_magic.generation.prompt_library._shared import FRAMING_RULES
 from pixel_magic.generation.prompts import PromptTemplate
+
+
+# ── JSON-structured multi-view prompt builder ─────────────────────────
+
+
+_VIEWS_4DIR: list[dict[str, str]] = [
+    {
+        "position": "left",
+        "facing": "front-left (3/4 view, south_east)",
+        "description": "Front-facing isometric view — face and chest visible from a 3/4 top-down angle",
+    },
+    {
+        "position": "right",
+        "facing": "back-right (3/4 view, north_east)",
+        "description": "Rear-facing isometric view — back and top of head visible",
+    },
+]
+
+_VIEWS_8DIR: list[dict[str, str]] = [
+    {
+        "position": "far_left",
+        "facing": "back (north)",
+        "description": "Full back view from above — top of head and back visible",
+    },
+    {
+        "position": "center_left",
+        "facing": "back-right (3/4 view, north_east)",
+        "description": "Rear 3/4 view — back and right shoulder visible from above",
+    },
+    {
+        "position": "center",
+        "facing": "right (east)",
+        "description": "Side view from above — right profile visible",
+    },
+    {
+        "position": "center_right",
+        "facing": "front-right (3/4 view, south_east)",
+        "description": "Front 3/4 view — face and chest visible from a top-down angle",
+    },
+    {
+        "position": "far_right",
+        "facing": "front (south)",
+        "description": "Front view from above — face and front of body visible",
+    },
+]
+
+def build_character_sheet_prompt(
+    character_description: str,
+    direction_mode: int = 4,
+    style: str = "16-bit SNES RPG style",
+    resolution: str = "64x64",
+    max_colors: int = 16,
+    palette_hint: str = "",
+    provider: str = "openai",
+    chromakey_color: str = "green",
+) -> str:
+    """Build a JSON-structured prompt for multi-view character reference sheet.
+
+    Returns the prompt as a JSON string. Both GPT Image and Gemini respond
+    well to this structured format for producing consistent multi-view sheets.
+    """
+    from pixel_magic.generation.prompt_library._shared import (
+        background_instruction as _bg_instruction,
+        background_rule as _bg_rule,
+    )
+
+    views = _VIEWS_4DIR if direction_mode == 4 else _VIEWS_8DIR
+
+    prompt: dict[str, Any] = {
+        "image_type": "pixel_art",
+        "style": "isometric",
+        "purpose": "character_sprite_reference_sheet",
+        "background": {
+            "type": "transparent",
+            "rule": _bg_rule(provider, chromakey_color),
+            "instruction": _bg_instruction(provider, chromakey_color),
+        },
+        "views": views,
+        "character": {
+            "description": character_description,
+            "pose": "standing idle",
+            "consistency_rule": (
+                "Every view must depict the EXACT same character — identical proportions, "
+                "palette, clothing, accessories, and level of detail. Only the facing "
+                "direction changes between views."
+            ),
+        },
+        "art_details": {
+            "pixel_density": "medium",
+            "shading": "simple 2-3 tone stepped shading per color area",
+            "outline": "integrated (no separate outline color, edges defined by color contrast)",
+            "anti_aliasing": "none — every edge is a hard pixel step",
+            "perspective": "isometric 3/4 top-down (~30 degrees from above)",
+            "target_resolution_per_view": resolution,
+            "max_colors": max_colors,
+            "style_reference": (
+                "Classic SNES/Genesis pixel art: Final Fantasy Tactics, "
+                "Tactics Ogre, Chrono Trigger overworld sprites"
+            ),
+        },
+        "layout": {
+            "arrangement": "horizontal row, evenly spaced, well separated",
+            "spacing": "generous gap between each view so they do not overlap or touch",
+            "centering": "each character view centered vertically in its area",
+        },
+    }
+
+    if palette_hint:
+        prompt["color_palette_hint"] = palette_hint
+
+    return json.dumps(prompt, indent=2)
+
 
 # ── Shared constants ──────────────────────────────────────────────────
 
