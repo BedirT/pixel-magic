@@ -99,7 +99,7 @@ def build_character_sheet_prompt(
         "art_details": {
             "pixel_density": "medium",
             "shading": "simple 2-3 tone stepped shading per color area",
-            "outline": "integrated (no separate outline color, edges defined by color contrast)",
+            "outline": "Every element MUST have a 1-pixel black (#000000) outline — the character, all accessories, weapons, effects (fire, magic, particles), and every separate visual part must be fully enclosed by a black pixel border with no gaps",
             "anti_aliasing": "none — every edge is a hard pixel step",
             "perspective": "isometric 3/4 top-down (~30 degrees from above)",
             "target_resolution_per_view": resolution,

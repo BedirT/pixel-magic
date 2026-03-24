@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     openai_quality: Literal["low", "medium", "high"] = "medium"
 
     # Gemini
-    gemini_image_model: str = "gemini-2.0-flash-exp"
+    gemini_image_model: str = "gemini-3.1-flash-image-preview"
 
     # Generation defaults
     direction_mode: int = 4

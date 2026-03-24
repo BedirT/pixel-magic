@@ -13,6 +13,8 @@ dependencies = [
     "numpy>=1.26.0",
     "pydantic>=2.6.0",
     "pydantic-settings>=2.2.0",
+    "rembg>=2.0.73",
+    "onnxruntime>=1.24.4",
 ]
 
 [project.optional-dependencies]
