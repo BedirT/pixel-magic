@@ -25,6 +25,24 @@ def _build_parser() -> argparse.ArgumentParser:
     gen.add_argument("--max-colors", type=int, default=16, help="Max color count (default: 16)")
     gen.add_argument("--style", default="16-bit SNES RPG style", help="Art style")
     gen.add_argument("--palette-hint", default="", help="Color palette hint")
+    gen.add_argument(
+        "--sizes",
+        default="",
+        help='Resize sprites to pixel art sizes (e.g. "32,64" or "all"). '
+        "Valid: 16, 32, 48, 64, 96, 128, 256",
+    )
+    gen.add_argument(
+        "--num-colors",
+        type=int,
+        default=None,
+        help="Color palette size for resized sprites (default: preserve original colors)",
+    )
+    gen.add_argument(
+        "--chromakey",
+        choices=["green", "blue"],
+        default=None,
+        help="Override chromakey color for Gemini background removal (default: from .env)",
+    )
 
     return parser
 
@@ -42,6 +60,7 @@ async def _generate(args: argparse.Namespace) -> None:
 
     settings = Settings()
     provider_name = args.provider or settings.provider
+    chromakey_color = args.chromakey or settings.chromakey_color
 
     # Build prompt
     prompt = build_character_sheet_prompt(
@@ -52,7 +71,7 @@ async def _generate(args: argparse.Namespace) -> None:
         max_colors=args.max_colors,
         palette_hint=args.palette_hint,
         provider=provider_name,
-        chromakey_color=settings.chromakey_color,
+        chromakey_color=chromakey_color,
     )
 
     # Create provider
@@ -88,7 +107,7 @@ async def _generate(args: argparse.Namespace) -> None:
     if provider_name == "gemini":
         from pixel_magic.background import remove_background
 
-        sheet = remove_background(result.image)
+        sheet = remove_background(result.image, chromakey_color=chromakey_color)
         sheet_path = out_dir / "sheet.png"
         sheet.save(sheet_path)
         print(f"Saved sheet: {sheet_path} (background removed)")
@@ -109,6 +128,21 @@ async def _generate(args: argparse.Namespace) -> None:
             sprite.save(sprite_path)
             print(f"  {label}: {sprite.width}x{sprite.height}")
         print(f"Extracted {len(sprites)} sprites to {views_dir}")
+
+        # Resize to pixel art sizes if requested
+        if args.sizes:
+            from pixel_magic.resize import parse_sizes, resize_sprite
+
+            sizes = parse_sizes(args.sizes)
+            for size in sizes:
+                size_dir = views_dir / f"{size}x{size}"
+                size_dir.mkdir(exist_ok=True)
+                for i, sprite in enumerate(sprites):
+                    label = view_labels[i] if i < len(view_labels) else f"view_{i}"
+                    resized = resize_sprite(sprite, size, num_colors=args.num_colors)
+                    resized.save(size_dir / f"{label}.png")
+                print(f"  Resized to {size}x{size}")
+            print(f"Saved {len(sizes)} size variants")
     else:
         print("Warning: could not extract individual sprites from sheet")
 

@@ -15,6 +15,7 @@ dependencies = [
     "pydantic-settings>=2.2.0",
     "rembg>=2.0.73",
     "onnxruntime>=1.24.4",
+    "proper-pixel-art>=0.2.0",
 ]
 
 [project.optional-dependencies]
