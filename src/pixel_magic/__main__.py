@@ -7,6 +7,8 @@ import asyncio
 import sys
 from pathlib import Path
 
+from PIL import Image
+
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -42,6 +44,25 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=["green", "blue"],
         default=None,
         help="Override chromakey color for Gemini background removal (default: from .env)",
+    )
+
+    anim = sub.add_parser("animate", help="Generate animation frames for an existing character")
+    anim.add_argument("--name", required=True, help="Character name (must exist in output dir)")
+    anim.add_argument("--animation", default="walk", help="Animation type (default: walk)")
+    anim.add_argument("--description", default="", help="Character description (helps model consistency)")
+    anim.add_argument("--frames", type=int, default=5, help="Total frames in cycle (default: 5)")
+    anim.add_argument("--loop", action="store_true", default=True, help="Looping animation (default)")
+    anim.add_argument("--no-loop", dest="loop", action="store_false", help="One-shot animation (attack, death, etc.)")
+    anim.add_argument("--direction", default="front_right", help="Which view to animate (default: front_right — east-facing works best)")
+    anim.add_argument("--reference", default=None, help="Path to reference frame (overrides auto-detect)")
+    anim.add_argument("--output-dir", default="output", help="Output directory (default: output)")
+    anim.add_argument("--chromakey", choices=["green", "blue"], default=None, help="Chromakey color")
+    anim.add_argument("--style", default="16-bit SNES RPG style", help="Art style")
+    anim.add_argument("--platform", action="store_true", default=False, help="Add isometric platform tiles for perspective reference")
+    anim.add_argument("--no-platform", dest="platform", action="store_false", help="No platform (default)")
+    anim.add_argument(
+        "--tiles", type=int, default=1, choices=[1, 4, 9],
+        help="Platform tile count: 1 (default), 4 (2x2 grid), 9 (3x3 grid). More tiles = more room for action poses.",
     )
 
     return parser
@@ -147,6 +168,59 @@ async def _generate(args: argparse.Namespace) -> None:
         print("Warning: could not extract individual sprites from sheet")
 
 
+async def _animate(args: argparse.Namespace) -> None:
+    from pixel_magic.animate import assemble_sprite_sheet, generate_animation
+    from pixel_magic.config import Settings
+    from pixel_magic.providers.gemini import GeminiProvider
+
+    settings = Settings()
+    chromakey_color = args.chromakey or settings.chromakey_color
+
+    # Find reference frame
+    if args.reference:
+        ref_path = Path(args.reference)
+    else:
+        ref_path = Path(args.output_dir) / args.name / "views" / f"{args.direction}.png"
+
+    if not ref_path.exists():
+        print(f"Error: reference frame not found at {ref_path}")
+        print("Run 'pixel-magic generate' first, or use --reference to specify a path.")
+        sys.exit(1)
+
+    reference = Image.open(ref_path).convert("RGBA")
+    print(f"Reference: {ref_path} ({reference.width}x{reference.height})")
+
+    provider = GeminiProvider(
+        api_key=settings.google_api_key,
+        model=settings.gemini_image_model,
+    )
+
+    # --tiles > 1 implies --platform
+    if args.tiles > 1:
+        args.platform = True
+
+    anim_dir = Path(args.output_dir) / args.name / "animations" / args.animation
+    print(f"Generating {args.frames}-frame {args.animation} animation...")
+
+    anim_frames = await generate_animation(
+        provider=provider,
+        reference_frame=reference,
+        animation_type=args.animation,
+        total_frames=args.frames,
+        loop=args.loop,
+        character_description=args.description,
+        style=args.style,
+        chromakey_color=chromakey_color,
+        save_dir=anim_dir,
+        platform=args.platform,
+        tiles=args.tiles,
+    )
+
+    sheet = assemble_sprite_sheet(anim_frames)
+    sheet.save(anim_dir / "sheet.png")
+    print(f"Saved {len(anim_frames)} frames + sheet to {anim_dir}")
+
+
 def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
@@ -157,6 +231,8 @@ def main() -> None:
 
     if args.command == "generate":
         asyncio.run(_generate(args))
+    elif args.command == "animate":
+        asyncio.run(_animate(args))
 
 
 if __name__ == "__main__":

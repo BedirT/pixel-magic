@@ -130,14 +130,15 @@ def composite_on_platform(
     comp_w = max(char_w, platform.width)
 
     # Layout from top: [headroom] [scaled char] [platform]
-    # Character feet land on the upper area of the diamond
-    overlap = int(single_diamond_h * 0.7)  # feet ~70% into diamond from top
+    # Character feet land towards the center of the tile grid
+    grid_center_offset = (grid_size - 1) * single_diamond_h // 2
+    overlap = int(single_diamond_h * 0.7) + grid_center_offset
     saved_space = char_h - new_h
     headroom = saved_space // 3  # 1/3 of freed space → headroom
 
     char_x = (comp_w - new_w) // 2
     char_y = headroom
-    platform_x = (comp_w - plat_w) // 2
+    platform_x = (comp_w - platform.width) // 2
     platform_y = char_y + new_h - overlap
 
     comp_h = platform_y + platform.height

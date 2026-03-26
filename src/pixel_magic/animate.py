@@ -10,6 +10,12 @@ from PIL import Image
 from pixel_magic.prompts import build_canvas_prompt
 from pixel_magic.providers.gemini import GeminiProvider
 
+# Gemini-supported aspect ratios — landscape/square only (w, h)
+# Portrait ratios excluded: animation grids read left-to-right
+_GEMINI_RATIOS: list[tuple[int, int]] = [
+    (1, 1), (5, 4), (4, 3), (3, 2), (16, 9),
+]
+
 # 3x5 pixel bitmaps for digits 0-9 (each row is a 3-bit mask, MSB = left)
 _DIGIT_BITMAPS: dict[int, list[int]] = {
     0: [0b111, 0b101, 0b101, 0b101, 0b111],
@@ -63,20 +69,64 @@ def _draw_frame_number(
 
 
 def _grid_layout(n_frames: int, slot_w: int, slot_h: int) -> tuple[int, int]:
-    """Find (cols, rows) grid closest to 16:9 aspect ratio."""
-    target = 16 / 9
+    """Find (cols, rows) grid closest to a supported Gemini aspect ratio.
+
+    Scores each layout against all supported Gemini ratios and picks the
+    one with the best match. Strongly penalizes wasted cells to avoid
+    Gemini filling empty cells with extra frames.
+    """
     best = (n_frames, 1)
-    best_diff = float("inf")
+    best_score = float("inf")
 
     for cols in range(1, n_frames + 1):
         rows = math.ceil(n_frames / cols)
         ratio = (cols * slot_w) / (rows * slot_h)
-        diff = abs(ratio - target)
-        if diff < best_diff:
-            best_diff = diff
+        min_diff = min(abs(ratio - w / h) for w, h in _GEMINI_RATIOS)
+        wasted = cols * rows - n_frames
+        score = min_diff + wasted * 0.5
+        if score < best_score:
+            best_score = score
             best = (cols, rows)
 
     return best
+
+
+def _snap_gemini_ratio(canvas_w: int, canvas_h: int) -> tuple[str, int, int]:
+    """Find closest Gemini-supported aspect ratio and compute padded dimensions.
+
+    Returns (ratio_str, padded_w, padded_h) where padded dims >= original
+    and exactly match the chosen ratio.
+    """
+    ratio = canvas_w / canvas_h
+    best = (1, 1)
+    best_diff = float("inf")
+    for pair in _GEMINI_RATIOS:
+        diff = abs(ratio - pair[0] / pair[1])
+        if diff < best_diff:
+            best_diff = diff
+            best = pair
+
+    target = best[0] / best[1]
+    # Expand the smaller dimension to match the target ratio
+    if canvas_w / canvas_h < target:
+        new_w = math.ceil(canvas_h * target)
+        new_h = canvas_h
+    else:
+        new_w = canvas_w
+        new_h = math.ceil(canvas_w / target)
+
+    return f"{best[0]}:{best[1]}", new_w, new_h
+
+
+def _pick_image_size(longest_edge: int) -> str:
+    """Pick smallest Gemini output tier that covers the canvas."""
+    if longest_edge <= 512:
+        return "512"
+    if longest_edge <= 1024:
+        return "1K"
+    if longest_edge <= 2048:
+        return "2K"
+    return "4K"
 
 
 def build_canvas(
@@ -85,75 +135,102 @@ def build_canvas(
     chromakey_color: str = "green",
     slot_bg: Image.Image | None = None,
     loop: bool = False,
-) -> tuple[Image.Image, int]:
+) -> tuple[Image.Image, int, tuple[int, int], str, str]:
     """Build a sprite sheet canvas with frames arranged in a grid.
 
-    Frames are laid out in a cols x rows grid approximating 16:9 aspect ratio.
-    Empty slots get a pixel-art frame number in the top-left corner.
+    The canvas is padded to match a Gemini-supported aspect ratio.
+    Each slot is centered within its cell (evenly divided quadrant).
+    Empty slots get a pixel-art frame number in the top-left corner of the cell.
 
     If loop=True, the reference is placed in both slot 1 and the last slot.
     If slot_bg is provided, it's placed in every slot (behind reference).
 
-    Returns (canvas, cols) — cols needed by extract_frames().
+    Returns (canvas, cols, slot_size, aspect_ratio, image_size).
     """
     chromakey_rgb = {"green": (0, 255, 0), "blue": (0, 0, 255)}
     fill = chromakey_rgb.get(chromakey_color, (0, 255, 0))
 
-    w, h = reference_frame.size
-    cols, rows = _grid_layout(total_frames, w, h)
+    slot_w, slot_h = reference_frame.size
+    cols, rows = _grid_layout(total_frames, slot_w, slot_h)
 
-    canvas = Image.new("RGBA", (w * cols, h * rows), (*fill, 255))
+    # Snap to Gemini ratio for final canvas size
+    raw_w, raw_h = slot_w * cols, slot_h * rows
+    aspect_ratio, canvas_w, canvas_h = _snap_gemini_ratio(raw_w, raw_h)
+    image_size = _pick_image_size(max(canvas_w, canvas_h))
 
-    # Place slot backgrounds and frame numbers on all slots
+    canvas = Image.new("RGBA", (canvas_w, canvas_h), (*fill, 255))
+
+    # Evenly divide canvas into cells — slots centered within each cell
+    cell_w = canvas_w // cols
+    cell_h = canvas_h // rows
+    ox = (cell_w - slot_w) // 2  # horizontal offset to center slot
+    oy = (cell_h - slot_h) // 2  # vertical offset to center slot
+
     for idx in range(total_frames):
         col = idx % cols
         row = idx // cols
-        x, y = col * w, row * h
+        cell_x = col * cell_w
+        cell_y = row * cell_h
+        x = cell_x + ox
+        y = cell_y + oy
 
         if slot_bg is not None:
             canvas.paste(slot_bg, (x, y), slot_bg if slot_bg.mode == "RGBA" else None)
 
-        _draw_frame_number(canvas, idx + 1, x, y, w)
+        # Number at top-left of cell (not slot)
+        _draw_frame_number(canvas, idx + 1, cell_x, cell_y, cell_w)
 
     # Place reference in slot 1 (covers frame number underneath)
     canvas.paste(
-        reference_frame, (0, 0),
+        reference_frame, (ox, oy),
         reference_frame if reference_frame.mode == "RGBA" else None,
     )
 
     # Loop: also place reference in last slot
     if loop:
         last_idx = total_frames - 1
-        lx = (last_idx % cols) * w
-        ly = (last_idx // cols) * h
+        lx = (last_idx % cols) * cell_w + ox
+        ly = (last_idx // cols) * cell_h + oy
         canvas.paste(
             reference_frame, (lx, ly),
             reference_frame if reference_frame.mode == "RGBA" else None,
         )
 
-    return canvas, cols
+    return canvas, cols, (slot_w, slot_h), aspect_ratio, image_size
 
 
 def extract_frames(
     sheet: Image.Image,
     total_frames: int,
     cols: int | None = None,
+    slot_size: tuple[int, int] | None = None,
 ) -> list[Image.Image]:
     """Extract frames from a grid-layout sprite sheet.
 
-    If cols is None, falls back to horizontal strip (legacy).
+    If slot_size is provided, extracts centered slots from evenly-divided cells.
+    Otherwise falls back to dividing the sheet into equal cells.
     """
     if cols is None:
         cols = total_frames
     rows = math.ceil(total_frames / cols)
-    slot_w = sheet.width // cols
-    slot_h = sheet.height // rows
+    cell_w = sheet.width // cols
+    cell_h = sheet.height // rows
+
+    if slot_size:
+        sw, sh = slot_size
+        ox = (cell_w - sw) // 2
+        oy = (cell_h - sh) // 2
+    else:
+        sw, sh = cell_w, cell_h
+        ox, oy = 0, 0
 
     frames = []
     for idx in range(total_frames):
         col = idx % cols
         row = idx // cols
-        frame = sheet.crop((col * slot_w, row * slot_h, (col + 1) * slot_w, (row + 1) * slot_h))
+        x = col * cell_w + ox
+        y = row * cell_h + oy
+        frame = sheet.crop((x, y, x + sw, y + sh))
         frames.append(frame)
     return frames
 
@@ -195,13 +272,17 @@ async def generate_animation(
     else:
         ref_composite = reference_frame
 
-    # Build canvas
-    canvas, grid_cols = build_canvas(ref_composite, total_frames, chromakey_color, slot_bg=slot_bg, loop=loop)
+    # Build canvas (handles grid layout, padding, centering)
+    canvas, grid_cols, slot_size, aspect_ratio, image_size = build_canvas(
+        ref_composite, total_frames, chromakey_color, slot_bg=slot_bg, loop=loop,
+    )
     grid_rows = math.ceil(total_frames / grid_cols)
+
     if save_dir:
         canvas.save(save_dir / "canvas_input.png")
 
     print(f"  Canvas: {canvas.width}x{canvas.height} ({grid_cols}x{grid_rows} grid, {total_frames} frames)")
+    print(f"  Gemini: {aspect_ratio} ratio, {image_size} output, slot={slot_size[0]}x{slot_size[1]}")
 
     # Generate
     prompt = build_canvas_prompt(
@@ -221,6 +302,8 @@ async def generate_animation(
     result = await provider.generate_with_images(
         prompt=prompt,
         images=[canvas],
+        aspect_ratio=aspect_ratio,
+        image_size=image_size,
     )
 
     # Save raw result
@@ -240,13 +323,20 @@ async def generate_animation(
         cleaned = await provider.generate_with_images(
             prompt=removal_prompt,
             images=[result.image],
+            aspect_ratio=aspect_ratio,
+            image_size=image_size,
         )
         if save_dir:
             cleaned.image.save(save_dir / "sheet_cleaned.png")
         result = cleaned
 
-    # Extract frames
-    frames = extract_frames(result.image, total_frames, cols=grid_cols)
+    # Resize output to match our canvas dims if Gemini changed them
+    sheet = result.image
+    if sheet.size != canvas.size:
+        sheet = sheet.resize(canvas.size, Image.NEAREST)
+
+    # Extract frames (centered within cells)
+    frames = extract_frames(sheet, total_frames, cols=grid_cols, slot_size=slot_size)
 
     if save_dir:
         for i, frame in enumerate(frames, 1):
