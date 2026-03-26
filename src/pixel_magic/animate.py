@@ -204,7 +204,6 @@ async def generate_animation(
     print(f"  Canvas: {canvas.width}x{canvas.height} ({grid_cols}x{grid_rows} grid, {total_frames} frames)")
 
     # Generate
-    # TODO: pass grid_cols=grid_cols, grid_rows=grid_rows once prompts.py is updated
     prompt = build_canvas_prompt(
         animation_type=animation_type,
         total_frames=total_frames,
@@ -214,6 +213,8 @@ async def generate_animation(
         platform=platform,
         loop=loop,
         tiles=tiles,
+        grid_cols=grid_cols,
+        grid_rows=grid_rows,
     )
 
     print("  Generating sprite sheet...")
@@ -230,8 +231,11 @@ async def generate_animation(
     if platform:
         from pixel_magic.prompts import build_platform_removal_prompt
 
-        # TODO: pass grid_cols=grid_cols, grid_rows=grid_rows once prompts.py is updated
-        removal_prompt = build_platform_removal_prompt(total_frames, chromakey_color)
+        removal_prompt = build_platform_removal_prompt(
+            total_frames, chromakey_color,
+            grid_cols=grid_cols,
+            grid_rows=grid_rows,
+        )
         print("  Removing platforms (2nd pass)...")
         cleaned = await provider.generate_with_images(
             prompt=removal_prompt,

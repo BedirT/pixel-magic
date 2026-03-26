@@ -1,4 +1,4 @@
-"""JSON-structured prompt builder for character sprite sheets."""
+"""Prompt builders for character sprite sheets and animation frames."""
 
 from __future__ import annotations
 
@@ -120,3 +120,138 @@ def build_character_sheet_prompt(
         prompt["color_palette_hint"] = palette_hint
 
     return json.dumps(prompt, indent=2)
+
+
+# ---------------------------------------------------------------------------
+# Canvas-based sprite sheet animation prompt
+# ---------------------------------------------------------------------------
+
+_ANIMATION_DESCRIPTIONS: dict[str, str] = {
+    "walk": "a walk cycle — the character takes steps forward, legs alternating, arms swinging naturally. Each frame shows a different phase of the stride.",
+    "idle": "an idle/breathing animation — very subtle motion, the character shifts weight slightly and breathes. Minimal movement.",
+    "attack": "an attack animation — the character winds up, strikes with their weapon at full extension, then follows through.",
+    "run": "a run cycle — similar to walk but faster, with more exaggerated leg extension and body lean.",
+    "cast": "a spell casting animation — the character raises their hands, channels energy, and releases a spell.",
+}
+
+
+def build_canvas_prompt(
+    animation_type: str,
+    total_frames: int,
+    character_description: str = "",
+    style: str = "16-bit SNES RPG style",
+    chromakey_color: str = "green",
+    platform: bool = False,
+    loop: bool = False,
+    tiles: int = 1,
+    grid_cols: int | None = None,
+    grid_rows: int | None = None,
+) -> str:
+    """Build a prompt for canvas-based sprite sheet generation.
+
+    The caller creates a canvas with frame 1 placed in slot 1 and
+    the remaining slots filled with chromakey green. The model is
+    asked to fill in the green slots with animation frames.
+    """
+    hex_color = _CHROMAKEY_HEX.get(chromakey_color, "#00FF00")
+    anim_desc = _ANIMATION_DESCRIPTIONS.get(animation_type, f"a {animation_type} animation.")
+
+    if grid_cols and grid_rows:
+        layout_desc = f"{total_frames} numbered frame slots arranged in a {grid_cols}x{grid_rows} grid (read left-to-right, top-to-bottom)"
+    else:
+        layout_desc = f"{total_frames} frame slots in a horizontal row"
+
+    character_line = ""
+    if character_description:
+        character_line = f"\nThe character is {character_description}."
+
+    if loop:
+        middle_count = total_frames - 2
+        loop_desc = f"The FIRST and LAST slots both show the same character pose — this is a LOOPING animation. Fill in the {middle_count} middle slots (slots 2–{total_frames - 1}) with animation frames that smoothly transition from the first pose, through the full motion, and back to the same pose."
+        anchor_rule = f"- Do NOT modify the first or last slot — they are identical anchor poses for the loop\n- The animation must smoothly cycle: frame {total_frames} flows back into frame 1"
+    else:
+        loop_desc = f"The FIRST slot contains the starting pose. Fill in the remaining {total_frames - 1} slots with animation frames."
+        anchor_rule = "- Do NOT modify the first slot — it is the reference frame, leave it exactly as-is"
+
+    if platform:
+        if tiles == 1:
+            floor_desc = "an isometric stone platform"
+        elif tiles == 4:
+            floor_desc = "a 2x2 isometric stone tile floor (4 tiles in a diamond)"
+        else:
+            floor_desc = "a 3x3 isometric stone tile floor (9 tiles in a diamond)"
+
+        if loop:
+            slot_desc = f"The FIRST and LAST slots show a pixel art character standing on {floor_desc}. The {middle_count} middle slots each have the same floor but NO character."
+        else:
+            slot_desc = f"The FIRST slot shows a pixel art character standing on {floor_desc}. The remaining {total_frames - 1} slots each have the same floor but NO character."
+
+        if tiles > 1:
+            space_rule = "\n- The character has extra floor space — use it for the full range of motion (extended limbs, weapon swings, lunges)"
+        else:
+            space_rule = ""
+
+        return f"""\
+This image is a sprite sheet with {layout_desc}, on a {chromakey_color} ({hex_color}) background. {slot_desc}
+
+{loop_desc} Show {anim_desc}
+{character_line}
+
+RULES:
+- Draw the SAME character on each platform — identical proportions, colors, outfit, pixel art style
+- Each filled slot must show a DIFFERENT pose progressing through the animation
+{anchor_rule}
+- Each empty slot has a small white number in the top-left corner showing its frame position — use these numbers to maintain correct animation sequence order
+- Do NOT modify the stone platforms — draw the character standing ON TOP of them
+- The character's feet must rest on the platform surface in every frame
+- Maintain the isometric 3/4 top-down perspective — the platform establishes the ground plane{space_rule}
+- Style: {style}
+- Pixel art: hard pixel edges, no anti-aliasing, no smoothing
+- 1-pixel black outline on all character elements
+- Same color palette across all frames
+- {chromakey_color} ({hex_color}) background must remain around the character and platform"""
+
+    return f"""\
+This image is a sprite sheet with {layout_desc}. {loop_desc}
+{character_line}
+
+Show {anim_desc}
+
+RULES:
+- Draw the SAME character in each slot — identical proportions, colors, outfit, pixel art style
+- Each filled slot must show a DIFFERENT pose progressing through the animation
+{anchor_rule}
+- Each empty slot has a small white number in the top-left corner showing its frame position — use these numbers to maintain correct animation sequence order
+- Only draw inside the {chromakey_color} areas
+- Keep the {chromakey_color} ({hex_color}) background within each frame slot
+- Style: {style}, isometric 3/4 top-down view
+- Pixel art: hard pixel edges, no anti-aliasing, no smoothing
+- 1-pixel black outline on all character elements
+- Same color palette across all frames"""
+
+
+def build_platform_removal_prompt(
+    total_frames: int,
+    chromakey_color: str = "green",
+    grid_cols: int | None = None,
+    grid_rows: int | None = None,
+) -> str:
+    """Prompt for a second Gemini pass that removes platforms and frame numbers."""
+    hex_color = _CHROMAKEY_HEX.get(chromakey_color, "#00FF00")
+
+    if grid_cols and grid_rows:
+        layout_desc = f"arranged in a {grid_cols}x{grid_rows} grid"
+    else:
+        layout_desc = "in a horizontal row"
+
+    return f"""\
+This is a pixel art sprite sheet with {total_frames} character frames {layout_desc} on stone platforms. Some frames have small white numbers in the corner.
+
+Remove the stone platforms AND the frame numbers from EVERY frame. Replace all platform and number pixels with {chromakey_color} ({hex_color}) background.
+
+RULES:
+- Keep the characters EXACTLY as they are — same proportions, colors, poses, pixel art style
+- Do NOT modify any character pixels — only remove the stone platforms and corner numbers
+- Fill where the platforms and numbers were with solid {chromakey_color} ({hex_color})
+- The output must be the same dimensions as the input
+- Maintain the same {layout_desc} frame layout"""
