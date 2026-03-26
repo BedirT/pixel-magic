@@ -74,6 +74,68 @@ output/<name>/
 - **raw.png** — Exactly what the model returned, zero processing. OpenAI images have native transparency. Gemini images have a solid green (#00FF00) background.
 - **sheet.png** — Gemini only. Background removed via U2-Net segmentation (rembg) with green despill post-processing. Ready to use as a sprite sheet.
 
+### `pixel-magic animate`
+
+Generate animation frames for an existing character sprite.
+
+```bash
+pixel-magic animate --name <name> --animation <type> [options]
+```
+
+#### Required Arguments
+
+| Argument | Description |
+|---|---|
+| `--name <name>` | Character name. Must have existing sprites in `output/<name>/views/`. |
+
+#### Optional Arguments
+
+| Argument | Default | Description |
+|---|---|---|
+| `--animation <type>` | `walk` | Animation type: `walk`, `idle`, `attack`, `run`, `cast` |
+| `--description "<desc>"` | *(none)* | Character description (helps model consistency) |
+| `--frames <n>` | `5` | Total frames in the animation cycle |
+| `--loop` / `--no-loop` | `--loop` | Looping animation (first=last frame) or one-shot |
+| `--direction <dir>` | `front_right` | Which extracted view to animate |
+| `--reference <path>` | *(auto)* | Custom reference frame path (overrides auto-detect) |
+| `--platform` / `--no-platform` | `--no-platform` | Add isometric platform tiles for perspective |
+| `--tiles {1,4,9}` | `1` | Platform tile count: 1 (single), 4 (2×2 grid), 9 (3×3 grid). More tiles = more room for action poses. Implies `--platform`. |
+| `--output-dir <path>` | `output` | Root output directory |
+| `--chromakey {green,blue}` | from `.env` | Chromakey color |
+| `--style "<style>"` | `16-bit SNES RPG style` | Art style |
+
+#### Examples
+
+Walk cycle (looping):
+```bash
+pixel-magic animate --name samurai --animation walk --frames 6 --platform --loop
+```
+
+Attack with extra floor space (one-shot):
+```bash
+pixel-magic animate --name samurai --animation attack --frames 4 --tiles 4 --no-loop
+```
+
+Spell cast with maximum floor space:
+```bash
+pixel-magic animate --name samurai --animation cast --frames 4 --tiles 9 --no-loop
+```
+
+#### Output
+
+```
+output/<name>/animations/<animation>/
+├── canvas_input.png    # Input canvas sent to Gemini
+├── sheet_raw.png       # Gemini raw output
+├── sheet_cleaned.png   # After platform removal (if --platform)
+├── sheet.png           # Final horizontal sprite sheet
+├── frame_01.png        # Individual frames
+├── frame_02.png
+└── ...
+```
+
+---
+
 ## Environment Configuration
 
 Settings are loaded from a `.env` file in the project root. CLI arguments override `.env` values.
