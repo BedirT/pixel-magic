@@ -291,24 +291,40 @@ def _generation_grid_layout(n_views: int) -> tuple[int, int, bool]:
     return cols, rows, n_views % cols != 0
 
 
+def _pick_generation_config(
+    n_views: int, tiles: int,
+) -> tuple[str, str, int, int]:
+    """Pick fixed Gemini output config based on view count and tile footprint.
+
+    Returns (image_size, aspect_ratio, canvas_w, canvas_h).
+    """
+    if n_views <= 3:
+        # 2-view (4-dir): 1K 4:3, except 9-tile gets 2K 16:9
+        if tiles >= 9:
+            return "2K", "16:9", 2048, 1152
+        return "1K", "4:3", 1024, 768
+    # 5-view (8-dir): 3x2 grid needs wider canvas
+    return "2K", "16:9", 2048, 1152
+
+
 def build_generation_canvas(
     view_labels: list[str],
-    tile_width: int = 256,
     tile_depth: int = 16,
     tiles: int = 1,
     chromakey_color: str = "green",
-    char_ratio: float = 1.7,
+    platform_fill: float = 0.55,
+    char_ratio: float = 1.2,
 ) -> tuple[Image.Image, int, tuple[int, int], str, str, bool]:
     """Build a canvas with labeled platforms for character generation.
 
-    Each platform gets a direction label in the top-left corner.
-    For 5 views, the bottom row of 2 is centered.
+    Top-down approach: start from a fixed Gemini output size, divide into
+    cells, then fit platforms and character space inside each cell.
 
-    char_ratio controls platform placement — the space above the platform
-    is sized for a character of height tile_width * char_ratio. This
-    positions the platform where a character's feet would be, but the
-    model may generate characters of different sizes. Default 1.7 is
-    mid-range for isometric RPG sprites (1.5 chibi, 2.0 tactical).
+    platform_fill controls how much of the cell width the platform occupies
+    (0.55 = platform is 55% of cell width). char_ratio estimates the
+    character's height as a multiple of the platform width — used to
+    vertically center the character+platform unit in each cell so the
+    character's head doesn't clip the top.
 
     Returns (canvas, cols, slot_size, aspect_ratio, image_size, center_bottom).
     """
@@ -320,37 +336,43 @@ def build_generation_canvas(
     n_views = len(view_labels)
     cols, rows, center_bottom = _generation_grid_layout(n_views)
 
-    # Scale individual tile size down for larger grids so platforms don't dominate
-    # Slot size stays based on base tile_width — only the tiles inside shrink
-    grid_size = {1: 1, 4: 2, 9: 3}.get(tiles, 1)
-    _tile_scale = {1: 1.0, 2: 0.7, 3: 0.45}
-    scaled_tile = int(tile_width * _tile_scale.get(grid_size, 1.0))
-    platform = create_platform_grid(scaled_tile, tile_depth, grid_size=grid_size)
-
-    # Slot dimensions based on BASE tile_width (consistent canvas size)
-    char_height = int(tile_width * char_ratio)
-    slot_w = max(tile_width * 2, platform.width + 20)
-    slot_h_base = char_height
-
-    # Character feet land at the CENTER of the platform's diamond top face.
-    single_diamond_h = scaled_tile // 2
-    feet_offset = grid_size * single_diamond_h // 2
-
-    # Platform placed so feet_offset into it aligns with bottom of char_height
-    plat_x = (slot_w - platform.width) // 2
-    plat_y = char_height - feet_offset
-    slot_h = plat_y + platform.height
-
-    # Snap to Gemini ratio
-    raw_w = cols * slot_w
-    raw_h = rows * slot_h
-    aspect_ratio, canvas_w, canvas_h = _snap_gemini_ratio(raw_w, raw_h)
-    image_size = _pick_image_size(max(canvas_w, canvas_h))
+    # Fixed canvas size from Gemini config
+    image_size, aspect_ratio, canvas_w, canvas_h = _pick_generation_config(n_views, tiles)
 
     canvas = Image.new("RGBA", (canvas_w, canvas_h), (*fill, 255))
 
     cell_w = canvas_w // cols
     cell_h = canvas_h // rows
+
+    # Size platform to fill a fraction of the cell width
+    grid_size = {1: 1, 4: 2, 9: 3}.get(tiles, 1)
+    target_plat_w = int(cell_w * platform_fill)
+    tile_width = max(32, target_plat_w // grid_size)
+    if tile_width % 2 != 0:
+        tile_width += 1
+    platform = create_platform_grid(tile_width, tile_depth, grid_size=grid_size)
+
+    # --- Vertical placement: center character+platform unit in cell ---
+    # Estimate character height from platform width
+    char_height = int(platform.width * char_ratio)
+
+    # Character feet land at center of the diamond top face
+    diamond_h = grid_size * tile_width // 2
+    feet_offset = diamond_h // 2  # y from top of platform image
+
+    # Total composite: character body above feet + platform below feet
+    platform_below_feet = platform.height - feet_offset
+    composite_h = char_height + platform_below_feet
+
+    # Clamp if composite exceeds cell (leave small margin)
+    margin_min = 8
+    if composite_h > cell_h - margin_min * 2:
+        char_height = cell_h - platform_below_feet - margin_min * 2
+        composite_h = cell_h - margin_min * 2
+
+    # Center the composite vertically in the cell
+    top_margin = (cell_h - composite_h) // 2
+    plat_y_in_cell = top_margin + char_height - feet_offset
 
     for idx in range(n_views):
         if not center_bottom or idx < cols:
@@ -368,18 +390,16 @@ def build_generation_canvas(
             cell_x = offset + bottom_idx * cell_w
             cell_y = row * cell_h
 
-        # Center slot within cell
-        ox = cell_x + (cell_w - slot_w) // 2
-        oy = cell_y + (cell_h - slot_h) // 2
-
-        # Paste platform
-        canvas.paste(platform, (ox + plat_x, oy + plat_y), platform)
+        # Center platform horizontally in cell
+        plat_x = cell_x + (cell_w - platform.width) // 2
+        plat_y = cell_y + plat_y_in_cell
+        canvas.paste(platform, (plat_x, plat_y), platform)
 
         # Draw direction label
         label_text = view_labels[idx].upper().replace("_", " ")
         _draw_pixel_text(canvas, label_text, cell_x, cell_y, cell_w)
 
-    return canvas, cols, (slot_w, slot_h), aspect_ratio, image_size, center_bottom
+    return canvas, cols, (cell_w, cell_h), aspect_ratio, image_size, center_bottom
 
 
 async def generate_animation(

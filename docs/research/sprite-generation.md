@@ -224,31 +224,87 @@ Platform-guided generation is now the **default** for `pixel-magic generate`. Te
 - Tile size communicates character footprint — a 2×2 platform tells the model this is a larger creature
 - Grid layout matches Gemini's supported aspect ratios — better output quality
 
+### Canvas sizing: top-down approach
+
+**Evolution:**
+1. **v1 — Bottom-up:** Start from tile size → compute slot size → snap canvas to nearest Gemini ratio. Problem: final canvas dimensions were unpredictable, and the ratio-snapping padding created awkward empty regions.
+2. **v2 — Top-down (current):** Start from a fixed Gemini output size, divide into cells, fit platforms inside. Canvas dimensions are always exact Gemini output pixels — no snapping or padding needed.
+
+**How it works:**
+1. Pick a fixed canvas size based on view count and tile footprint (see table below)
+2. Divide the canvas into cells: `cell_w = canvas_w / cols`, `cell_h = canvas_h / rows`
+3. Size the platform to fill `platform_fill` (default 55%) of the cell width
+4. Back-solve `tile_width = target_platform_width / grid_size` so the platform fits the budget
+5. Position the platform vertically using character height estimation (see below)
+
+**Canvas size mapping:**
+
+| Views | Tiles | Size | Ratio | Pixels |
+|-------|-------|------|-------|--------|
+| 2 (4-dir) | 1, 4 | 1K | 4:3 | 1024×768 |
+| 2 (4-dir) | 9 | 2K | 16:9 | 2048×1152 |
+| 5 (8-dir) | any | 2K | 16:9 | 2048×1152 |
+
+Rule: `image_size` = longest edge in pixels, ratio determines the short edge. E.g., 1K + 4:3 = 1024×768.
+
 ### Grid layout
 
-- 4-dir (2 views): side by side in one row
-- 8-dir (5 views): 3 top, 2 bottom centered
-- Canvas padded to nearest Gemini ratio (1:1, 5:4, 4:3, 3:2, 16:9)
+- 4-dir (2 views): side by side in one row (2×1)
+- 8-dir (5 views): 3 top, 2 bottom centered (3×2)
+
+### Platform placement: the centering problem
+
+Placing the platform in the center of a cell seems natural, but when the character is drawn ON the platform, the character's head extends upward and may clip the top of the cell. Conversely, placing the platform at the very bottom wastes vertical space with an ocean of green above.
+
+**Solution:** Estimate the character height, then vertically center the entire character+platform composite unit in the cell.
+
+```
+Cell layout (conceptual):
+┌──────────────────┐
+│   [headroom]     │
+│   ┌──────────┐   │  ← estimated head position
+│   │ character │   │
+│   │   body    │   │
+│   └──feet────┘   │  ← feet on platform surface
+│   ╱────────────╲ │
+│  │   platform   ││
+│  ╲──────────────╱│
+│   [padding]      │
+└──────────────────┘
+```
+
+**The math:**
+
+1. **Estimate character height:** `char_height = platform_width × char_ratio`
+   - `char_ratio` (default 1.2) = character is 1.2× as tall as the platform is wide
+   - Using platform width as reference keeps proportions consistent across tile counts (platform width ≈ `cell_w × platform_fill` regardless of grid_size)
+2. **Find the feet point:** Character feet land at the center of the diamond top face
+   - `diamond_h = grid_size × tile_width / 2`
+   - `feet_offset = diamond_h / 2` (y from top of platform image)
+3. **Compute composite height:** `composite_h = char_height + (platform_height - feet_offset)`
+   - Everything from the character's head down to the platform's bottom edge
+4. **Center it:** `top_margin = (cell_h - composite_h) / 2`
+   - Platform y = `top_margin + char_height - feet_offset`
+5. **Clamp:** If composite exceeds cell height, reduce char_height to fit with minimal margins
+
+**`--char-ratio` tuning:**
+- Default 1.2 works for typical isometric RPG sprites
+- Lower (0.8–1.0) for squat/chibi characters — pushes platform higher
+- Higher (1.5–2.0) for tall tactical RPG sprites — pushes platform lower
+- The model isn't bound by this estimate — it controls platform placement, not character size
 
 ### Platform rendering
 
 Platforms are drawn as unified isometric blocks with tile division grid lines — not by pasting individual tiles. This eliminates visible seams between tiles.
 
-**Evolution:**
+**Rendering evolution:**
 1. **v1 — Tile pasting:** Created individual isometric tiles and pasted them in a diamond grid. This produced visible seam artifacts where tiles overlapped, and tile outlines doubled up at edges.
 2. **v2 — Unified block with grid lines:** Draws one large isometric block (top face, left face, right face as filled polygons), then overlays tile division lines on the top face only. Grid lines are drawn by linear interpolation along the diamond edges. Much cleaner rendering.
 
-**Tile scaling for multi-tile grids:**
-- Grid sizes > 1 scale down the individual tile width to prevent platforms from dominating the canvas
-- Scale factors: 1-tile = 1.0×, 2×2 = 0.7×, 3×3 = 0.45× of the base `tile_width` (256px)
-- Slot dimensions stay based on the base tile_width — only the platform inside shrinks
-- This keeps canvas sizes manageable while still giving Gemini the visual cue of a larger floor area
-
-**Character placement (`--char-ratio`):**
-- `char_ratio` (default 1.2) controls the space above the platform reserved for the character
-- Character height = `tile_width × char_ratio`
-- Character feet positioned at the center of the platform's diamond top face
-- Higher ratio = more headroom, lower ratio = character fills more of the slot
+**Platform sizing:**
+- `platform_fill` (default 0.55) controls what fraction of the cell width the platform occupies
+- `tile_width` is back-solved: `tile_width = (cell_w × platform_fill) / grid_size`
+- This means platform width ≈ `cell_w × 0.55` regardless of grid_size — consistent visual weight
 
 ### Text-only fallback (`--no-platform`)
 
@@ -262,6 +318,8 @@ Disables the platform canvas pipeline entirely. Uses a JSON-structured prompt wi
 |----------|--------|-----|
 | Provider | Gemini only | Cheaper, better pixel art, multimodal input required for canvas pipeline |
 | Default generation | Platform-guided canvas | Perspective grounding, direction labels, tile footprint communication |
+| Canvas sizing | Top-down (fixed Gemini output → divide → fit) | Predictable dimensions, no ratio-snapping artifacts |
+| Platform placement | Centered char+platform composite | Prevents head clipping and wasted space |
 | Prompt format | JSON (text-only generation), Narrative (platform generation + animation) | JSON for structure, narrative for creative freedom with visual context |
 | Background | Chromakey + rembg + despill | Neural segmentation > thresholding |
 | Extraction | Connected-component analysis | Handles inconsistent model placement |
@@ -289,4 +347,4 @@ OpenAI (gpt-image-1.5) was evaluated and removed. It offered native alpha transp
 2. **Style transfer from reference** — Use an existing sprite as a style reference for new characters
 3. **Automatic quality evaluation** — Detect and retry when views are inconsistent or malformed
 4. **Palette extraction + enforcement** — Extract palette from frame 1, enforce on subsequent generations
-5. **Platform grid line alignment** — Grid lines on the top face of multi-tile platforms need to properly extend down the side faces for visual consistency (currently top-face only)
+5. **Adaptive char_ratio** — Auto-detect character proportions from the first successful generation to improve placement on subsequent runs

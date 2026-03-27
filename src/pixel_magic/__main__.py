@@ -55,7 +55,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     gen.add_argument(
         "--char-ratio", type=float, default=1.2,
-        help="Character height as multiple of tile width for platform placement (default: 1.2).",
+        help="Estimated character height as multiple of platform width (default: 1.2). Controls platform vertical placement.",
     )
 
     anim = sub.add_parser("animate", help="Generate animation frames for an existing character")
