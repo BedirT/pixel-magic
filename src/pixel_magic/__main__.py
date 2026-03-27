@@ -50,9 +50,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Character tile footprint: 1 (default), 4 (2x2 — larger creature), 9 (3x3 — boss/mount).",
     )
     gen.add_argument(
-        "--char-ratio", type=float, default=1.7,
-        help="Character height as multiple of tile width for platform placement (default: 1.7). "
-        "Lower (1.5) for chibi/SNES, higher (2.0) for tactical/detailed.",
+        "--no-platform", dest="use_platform", action="store_false", default=True,
+        help="Disable platform-guided generation. Uses text-only prompt (more creative freedom, less perspective control).",
+    )
+    gen.add_argument(
+        "--char-ratio", type=float, default=1.2,
+        help="Character height as multiple of tile width for platform placement (default: 1.2).",
     )
 
     anim = sub.add_parser("animate", help="Generate animation frames for an existing character")
@@ -85,12 +88,8 @@ def _view_labels(directions: int) -> list[str]:
 
 
 async def _generate(args: argparse.Namespace) -> None:
-    from pixel_magic.animate import build_generation_canvas
     from pixel_magic.config import Settings
-    from pixel_magic.prompts import build_generation_canvas_prompt
     from pixel_magic.providers.gemini import GeminiProvider
-
-    # Note: build_generation_cleanup_prompt imported later in the pipeline
 
     settings = Settings()
     chromakey_color = args.chromakey or settings.chromakey_color
@@ -103,68 +102,22 @@ async def _generate(args: argparse.Namespace) -> None:
     view_labels = _view_labels(args.directions)
     view_count = len(view_labels)
 
-    # Build canvas with labeled platforms
-    canvas, grid_cols, slot_size, aspect_ratio, image_size, center_bottom = (
-        build_generation_canvas(
-            view_labels=view_labels,
-            tiles=args.tiles,
-            chromakey_color=chromakey_color,
-            char_ratio=args.char_ratio,
-        )
-    )
-    grid_rows = math.ceil(view_count / grid_cols)
-
     out_dir = Path(args.output_dir) / args.name
     out_dir.mkdir(parents=True, exist_ok=True)
-    canvas.save(out_dir / "canvas_input.png")
 
-    print(f"Generating {args.name} ({view_count} views, tiles={args.tiles})...")
-    print(f"  Canvas: {canvas.width}x{canvas.height} ({grid_cols}x{grid_rows} grid)")
-    print(f"  Gemini: {aspect_ratio} ratio, {image_size} output")
-
-    # Generate: send canvas + prompt
-    prompt = build_generation_canvas_prompt(
-        character_description=args.description,
-        direction_mode=args.directions,
-        style=args.style,
-        max_colors=args.max_colors,
-        chromakey_color=chromakey_color,
-        tiles=args.tiles,
-        grid_cols=grid_cols,
-        grid_rows=grid_rows,
-    )
-
-    print("  Generating character views...")
-    result = await provider.generate_with_images(
-        prompt=prompt,
-        images=[canvas],
-        aspect_ratio=aspect_ratio,
-        image_size=image_size,
-    )
-    result.image.save(out_dir / "raw.png")
-    print(f"  Raw: {result.image.width}x{result.image.height}")
-
-    # Second pass: remove platforms + labels (Gemini)
-    from pixel_magic.prompts import build_generation_cleanup_prompt
-
-    cleanup_prompt = build_generation_cleanup_prompt(
-        view_count, chromakey_color,
-        grid_cols=grid_cols,
-        grid_rows=grid_rows,
-    )
-    print("  Removing platforms...")
-    cleaned = await provider.generate_with_images(
-        prompt=cleanup_prompt,
-        images=[result.image],
-        aspect_ratio=aspect_ratio,
-        image_size=image_size,
-    )
-    cleaned.image.save(out_dir / "sheet_cleaned.png")
+    if args.use_platform:
+        result = await _generate_with_platforms(
+            args, provider, view_labels, view_count, chromakey_color, out_dir,
+        )
+    else:
+        result = await _generate_text_only(
+            args, provider, view_count, chromakey_color, out_dir,
+        )
 
     # Background removal (rembg + despill)
     from pixel_magic.background import remove_background
 
-    sheet = remove_background(cleaned.image, chromakey_color=chromakey_color)
+    sheet = remove_background(result.image, chromakey_color=chromakey_color)
     sheet.save(out_dir / "sheet.png")
     print(f"  Sheet: {sheet.width}x{sheet.height} (background removed)")
 
@@ -198,6 +151,85 @@ async def _generate(args: argparse.Namespace) -> None:
             print(f"Saved {len(sizes)} size variants")
     else:
         print("Warning: could not extract individual sprites from sheet")
+
+
+async def _generate_text_only(args, provider, view_count, chromakey_color, out_dir):
+    """Text-only generation — no platform template, maximum creative freedom."""
+    from pixel_magic.prompts import build_character_sheet_prompt
+
+    prompt = build_character_sheet_prompt(
+        character_description=args.description,
+        direction_mode=args.directions,
+        style=args.style,
+        resolution=args.resolution,
+        max_colors=args.max_colors,
+        palette_hint=args.palette_hint,
+        chromakey_color=chromakey_color,
+    )
+
+    print(f"Generating {args.name} ({view_count} views, text-only)...")
+    result = await provider.generate(prompt)
+    result.image.save(out_dir / "raw.png")
+    print(f"  Raw: {result.image.width}x{result.image.height}")
+    return result
+
+
+async def _generate_with_platforms(args, provider, view_labels, view_count, chromakey_color, out_dir):
+    """Platform-guided generation — canvas template with labeled platforms."""
+    from pixel_magic.animate import build_generation_canvas
+    from pixel_magic.prompts import build_generation_canvas_prompt, build_generation_cleanup_prompt
+
+    canvas, grid_cols, slot_size, aspect_ratio, image_size, center_bottom = (
+        build_generation_canvas(
+            view_labels=view_labels,
+            tiles=args.tiles,
+            chromakey_color=chromakey_color,
+            char_ratio=args.char_ratio,
+        )
+    )
+    grid_rows = math.ceil(view_count / grid_cols)
+    canvas.save(out_dir / "canvas_input.png")
+
+    print(f"Generating {args.name} ({view_count} views, tiles={args.tiles})...")
+    print(f"  Canvas: {canvas.width}x{canvas.height} ({grid_cols}x{grid_rows} grid)")
+    print(f"  Gemini: {aspect_ratio} ratio, {image_size} output")
+
+    prompt = build_generation_canvas_prompt(
+        character_description=args.description,
+        direction_mode=args.directions,
+        style=args.style,
+        max_colors=args.max_colors,
+        chromakey_color=chromakey_color,
+        tiles=args.tiles,
+        grid_cols=grid_cols,
+        grid_rows=grid_rows,
+    )
+
+    print("  Generating character views...")
+    result = await provider.generate_with_images(
+        prompt=prompt,
+        images=[canvas],
+        aspect_ratio=aspect_ratio,
+        image_size=image_size,
+    )
+    result.image.save(out_dir / "raw.png")
+    print(f"  Raw: {result.image.width}x{result.image.height}")
+
+    # Second pass: remove platforms + labels
+    cleanup_prompt = build_generation_cleanup_prompt(
+        view_count, chromakey_color,
+        grid_cols=grid_cols,
+        grid_rows=grid_rows,
+    )
+    print("  Removing platforms...")
+    cleaned = await provider.generate_with_images(
+        prompt=cleanup_prompt,
+        images=[result.image],
+        aspect_ratio=aspect_ratio,
+        image_size=image_size,
+    )
+    cleaned.image.save(out_dir / "sheet_cleaned.png")
+    return cleaned
 
 
 async def _animate(args: argparse.Namespace) -> None:

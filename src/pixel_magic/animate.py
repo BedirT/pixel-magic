@@ -325,13 +325,19 @@ def build_generation_canvas(
     platform = create_platform_grid(tile_width, tile_depth, grid_size=grid_size)
 
     # Slot dimensions derived from tile geometry
-    char_height = int(tile_width * char_ratio)
+    # Larger creatures (more tiles) are taller relative to their platform
+    char_height = int(tile_width * char_ratio * (1 + (grid_size - 1) * 0.3))
     slot_w = max(platform.width + 20, tile_width * 2)
-    slot_h = char_height + platform.height
 
-    # Platform sits right below the character's feet
+    # Character feet land at the CENTER of the platform's diamond top face.
+    # The body overlaps into the platform area (like standing ON the tiles).
+    single_diamond_h = tile_width // 2
+    feet_offset = grid_size * single_diamond_h // 2  # center of diamond grid
+
+    # Platform placed so feet_offset into it aligns with bottom of char_height
     plat_x = (slot_w - platform.width) // 2
-    plat_y = char_height
+    plat_y = char_height - feet_offset
+    slot_h = plat_y + platform.height
 
     # Snap to Gemini ratio
     raw_w = cols * slot_w
