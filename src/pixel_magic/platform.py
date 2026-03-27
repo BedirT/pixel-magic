@@ -60,35 +60,94 @@ def create_platform_grid(
     tile_depth: int = 8,
     grid_size: int = 1,
 ) -> Image.Image:
-    """Arrange tiles in an isometric diamond grid.
+    """Draw a unified isometric platform with grid lines on top.
 
     grid_size=1: single tile
     grid_size=2: 2x2 diamond (4 tiles)
     grid_size=3: 3x3 diamond (9 tiles)
 
+    Draws as ONE block with tile division lines — no seams between tiles.
     Returns RGBA image with transparent background.
     """
     if grid_size == 1:
         return create_platform(tile_width, tile_depth)
 
-    tile = create_platform(tile_width, tile_depth)
-    tw, th = tile.size
-    diamond_h = tile_width // 2
+    if tile_width % 2 != 0:
+        tile_width += 1
 
-    # Isometric grid dimensions
-    grid_w = grid_size * tw
-    grid_h = grid_size * diamond_h + tile_depth
+    # Full grid diamond dimensions
+    full_w = grid_size * tile_width
+    diamond_h = full_w // 2
+    total_h = diamond_h + tile_depth
 
-    grid_img = Image.new("RGBA", (grid_w, grid_h), (0, 0, 0, 0))
+    img = Image.new("RGBA", (full_w, total_h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
 
-    # Place tiles back-to-front for correct overlap
-    for row in range(grid_size):
-        for col in range(grid_size):
-            x = (col - row) * (tw // 2) + (grid_size - 1) * (tw // 2)
-            y = (col + row) * (diamond_h // 2)
-            grid_img.paste(tile, (x, y), tile)
+    cx = full_w // 2
+    cy = diamond_h // 2
+    bot = diamond_h - 1
 
-    return grid_img
+    # Draw unified block (same as single tile but scaled up)
+    top_face = [(cx, 0), (full_w - 1, cy), (cx, bot), (0, cy)]
+    left_face = [(0, cy), (cx, bot), (cx, bot + tile_depth), (0, cy + tile_depth)]
+    right_face = [(full_w - 1, cy), (cx, bot), (cx, bot + tile_depth), (full_w - 1, cy + tile_depth)]
+
+    draw.polygon(left_face, fill=_LEFT_COLOR)
+    draw.polygon(right_face, fill=_RIGHT_COLOR)
+    draw.polygon(top_face, fill=_TOP_COLOR)
+
+    # Outer silhouette
+    silhouette = [
+        (cx, 0),
+        (full_w - 1, cy),
+        (full_w - 1, cy + tile_depth),
+        (cx, bot + tile_depth),
+        (0, cy + tile_depth),
+        (0, cy),
+    ]
+    for i in range(len(silhouette)):
+        draw.line(
+            [silhouette[i], silhouette[(i + 1) % len(silhouette)]],
+            fill=_OUTLINE,
+            width=1,
+        )
+
+    # Draw tile grid lines on the top face only
+    # The top face diamond has corners: top(cx,0), right(full_w-1,cy), bottom(cx,bot), left(0,cy)
+    # Grid lines connect evenly spaced points on opposite edges
+    half_tile = tile_width // 2
+    quarter_tile = tile_width // 4
+
+    # Lines parallel to left→bottom edge (going top-right to bottom-left)
+    for i in range(1, grid_size):
+        # Point on top→right edge
+        sx = cx + i * half_tile
+        sy = i * quarter_tile
+        # Point on left→bottom edge
+        ex = i * half_tile - half_tile
+        ey = cy + i * quarter_tile - quarter_tile
+        # Correct: walk along each edge proportionally
+        t = i / grid_size
+        # top-right edge: from (cx,0) to (full_w-1,cy)
+        sx = int(cx + t * (full_w - 1 - cx))
+        sy = int(t * cy)
+        # left-bottom edge: from (0,cy) to (cx,bot)
+        ex = int(t * cx)
+        ey = int(cy + t * (bot - cy))
+        draw.line([(sx, sy), (ex, ey)], fill=_OUTLINE, width=1)
+
+    # Lines parallel to right→bottom edge (going top-left to bottom-right)
+    for i in range(1, grid_size):
+        t = i / grid_size
+        # top-left edge: from (cx,0) to (0,cy)
+        sx = int(cx - t * cx)
+        sy = int(t * cy)
+        # right-bottom edge: from (full_w-1,cy) to (cx,bot)
+        ex = int(full_w - 1 - t * (full_w - 1 - cx))
+        ey = int(cy + t * (bot - cy))
+        draw.line([(sx, sy), (ex, ey)], fill=_OUTLINE, width=1)
+
+    return img
 
 
 def composite_on_platform(

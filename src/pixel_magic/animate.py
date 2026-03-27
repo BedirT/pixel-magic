@@ -293,7 +293,7 @@ def _generation_grid_layout(n_views: int) -> tuple[int, int, bool]:
 
 def build_generation_canvas(
     view_labels: list[str],
-    tile_width: int = 160,
+    tile_width: int = 256,
     tile_depth: int = 16,
     tiles: int = 1,
     chromakey_color: str = "green",
@@ -320,19 +320,21 @@ def build_generation_canvas(
     n_views = len(view_labels)
     cols, rows, center_bottom = _generation_grid_layout(n_views)
 
-    # Create platform for sizing
+    # Scale individual tile size down for larger grids so platforms don't dominate
+    # Slot size stays based on base tile_width — only the tiles inside shrink
     grid_size = {1: 1, 4: 2, 9: 3}.get(tiles, 1)
-    platform = create_platform_grid(tile_width, tile_depth, grid_size=grid_size)
+    _tile_scale = {1: 1.0, 2: 0.7, 3: 0.45}
+    scaled_tile = int(tile_width * _tile_scale.get(grid_size, 1.0))
+    platform = create_platform_grid(scaled_tile, tile_depth, grid_size=grid_size)
 
-    # Slot dimensions derived from tile geometry
-    # Larger creatures (more tiles) are taller relative to their platform
-    char_height = int(tile_width * char_ratio * (1 + (grid_size - 1) * 0.3))
-    slot_w = max(platform.width + 20, tile_width * 2)
+    # Slot dimensions based on BASE tile_width (consistent canvas size)
+    char_height = int(tile_width * char_ratio)
+    slot_w = max(tile_width * 2, platform.width + 20)
+    slot_h_base = char_height
 
     # Character feet land at the CENTER of the platform's diamond top face.
-    # The body overlaps into the platform area (like standing ON the tiles).
-    single_diamond_h = tile_width // 2
-    feet_offset = grid_size * single_diamond_h // 2  # center of diamond grid
+    single_diamond_h = scaled_tile // 2
+    feet_offset = grid_size * single_diamond_h // 2
 
     # Platform placed so feet_offset into it aligns with bottom of char_height
     plat_x = (slot_w - platform.width) // 2
