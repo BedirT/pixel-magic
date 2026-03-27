@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import math
 import sys
 from pathlib import Path
 
@@ -44,6 +45,10 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Override chromakey color for Gemini background removal (default: from .env)",
     )
+    gen.add_argument(
+        "--tiles", type=int, default=1, choices=[1, 4, 9],
+        help="Character tile footprint: 1 (default), 4 (2x2 — larger creature), 9 (3x3 — boss/mount).",
+    )
 
     anim = sub.add_parser("animate", help="Generate animation frames for an existing character")
     anim.add_argument("--name", required=True, help="Character name (must exist in output dir)")
@@ -75,49 +80,86 @@ def _view_labels(directions: int) -> list[str]:
 
 
 async def _generate(args: argparse.Namespace) -> None:
+    from pixel_magic.animate import build_generation_canvas, extract_frames
     from pixel_magic.config import Settings
-    from pixel_magic.prompts import build_character_sheet_prompt
+    from pixel_magic.prompts import (
+        build_generation_canvas_prompt,
+        build_generation_cleanup_prompt,
+    )
     from pixel_magic.providers.gemini import GeminiProvider
 
     settings = Settings()
     chromakey_color = args.chromakey or settings.chromakey_color
 
-    # Build prompt
-    prompt = build_character_sheet_prompt(
-        character_description=args.description,
-        direction_mode=args.directions,
-        style=args.style,
-        resolution=args.resolution,
-        max_colors=args.max_colors,
-        palette_hint=args.palette_hint,
-        chromakey_color=chromakey_color,
-    )
-
-    # Create provider
     provider = GeminiProvider(
         api_key=settings.google_api_key,
         model=settings.gemini_image_model,
     )
 
-    # Generate
-    view_count = 2 if args.directions == 4 else 5
-    print(f"Generating {args.name} ({view_count} views)...")
-    result = await provider.generate(prompt)
+    view_labels = _view_labels(args.directions)
+    view_count = len(view_labels)
 
-    # Save raw image — zero processing
+    # Build canvas with labeled platforms
+    canvas, grid_cols, slot_size, aspect_ratio, image_size, center_bottom = (
+        build_generation_canvas(
+            view_labels=view_labels,
+            tiles=args.tiles,
+            chromakey_color=chromakey_color,
+        )
+    )
+    grid_rows = math.ceil(view_count / grid_cols)
+
     out_dir = Path(args.output_dir) / args.name
     out_dir.mkdir(parents=True, exist_ok=True)
-    raw_path = out_dir / "raw.png"
-    result.image.save(raw_path)
-    print(f"Saved raw: {raw_path} ({result.image.width}x{result.image.height})")
+    canvas.save(out_dir / "canvas_input.png")
 
-    # Remove chromakey background
+    print(f"Generating {args.name} ({view_count} views, tiles={args.tiles})...")
+    print(f"  Canvas: {canvas.width}x{canvas.height} ({grid_cols}x{grid_rows} grid)")
+    print(f"  Gemini: {aspect_ratio} ratio, {image_size} output")
+
+    # Generate: send canvas + prompt
+    prompt = build_generation_canvas_prompt(
+        character_description=args.description,
+        direction_mode=args.directions,
+        style=args.style,
+        max_colors=args.max_colors,
+        chromakey_color=chromakey_color,
+        tiles=args.tiles,
+        grid_cols=grid_cols,
+        grid_rows=grid_rows,
+    )
+
+    print("  Generating character views...")
+    result = await provider.generate_with_images(
+        prompt=prompt,
+        images=[canvas],
+        aspect_ratio=aspect_ratio,
+        image_size=image_size,
+    )
+    result.image.save(out_dir / "raw.png")
+    print(f"  Raw: {result.image.width}x{result.image.height}")
+
+    # Second pass: remove platforms + labels
+    cleanup_prompt = build_generation_cleanup_prompt(
+        view_count, chromakey_color,
+        grid_cols=grid_cols,
+        grid_rows=grid_rows,
+    )
+    print("  Removing platforms...")
+    cleaned = await provider.generate_with_images(
+        prompt=cleanup_prompt,
+        images=[result.image],
+        aspect_ratio=aspect_ratio,
+        image_size=image_size,
+    )
+    cleaned.image.save(out_dir / "sheet_cleaned.png")
+
+    # Background removal (rembg + despill)
     from pixel_magic.background import remove_background
 
-    sheet = remove_background(result.image, chromakey_color=chromakey_color)
-    sheet_path = out_dir / "sheet.png"
-    sheet.save(sheet_path)
-    print(f"Saved sheet: {sheet_path} (background removed)")
+    sheet = remove_background(cleaned.image, chromakey_color=chromakey_color)
+    sheet.save(out_dir / "sheet.png")
+    print(f"  Sheet: {sheet.width}x{sheet.height} (background removed)")
 
     # Extract individual sprites
     from pixel_magic.extract import extract_sprites
@@ -126,7 +168,6 @@ async def _generate(args: argparse.Namespace) -> None:
     if sprites:
         views_dir = out_dir / "views"
         views_dir.mkdir(exist_ok=True)
-        view_labels = _view_labels(args.directions)
         for i, sprite in enumerate(sprites):
             label = view_labels[i] if i < len(view_labels) else f"view_{i}"
             sprite_path = views_dir / f"{label}.png"
