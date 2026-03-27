@@ -142,7 +142,8 @@ We tried several approaches for removing the chromakey background:
 1. **Simple color thresholding** (replace all green pixels with alpha) — leaves ugly halos because models anti-alias sprite edges against the background color
 2. **Color-distance thresholding** (remove pixels within a color distance from green) — either eats into the sprite or misses fringe pixels, no good threshold exists
 3. **rembg (U2-Net segmentation)** — neural network approach, much better edge quality but leaves residual color on edge pixels
-4. **rembg + color-aware despill** — best results, what we ship
+4. **rembg + color-aware despill** — best results for chromakey removal, what we ship
+5. **OpenAI Responses API with `background="transparent"`** — hybrid approach: Gemini generates on chromakey, then OpenAI edits the image with native transparent output. When it works, the results are excellent (clean alpha, no artifacts). But it's hit-or-miss — OpenAI sometimes modifies the character pixels, changes proportions, or produces inconsistent results between runs. Not reliable enough for a pipeline.
 
 The two-stage pipeline we use:
 

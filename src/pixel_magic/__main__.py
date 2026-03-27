@@ -80,13 +80,12 @@ def _view_labels(directions: int) -> list[str]:
 
 
 async def _generate(args: argparse.Namespace) -> None:
-    from pixel_magic.animate import build_generation_canvas, extract_frames
+    from pixel_magic.animate import build_generation_canvas
     from pixel_magic.config import Settings
-    from pixel_magic.prompts import (
-        build_generation_canvas_prompt,
-        build_generation_cleanup_prompt,
-    )
+    from pixel_magic.prompts import build_generation_canvas_prompt
     from pixel_magic.providers.gemini import GeminiProvider
+
+    # Note: build_generation_cleanup_prompt imported later in the pipeline
 
     settings = Settings()
     chromakey_color = args.chromakey or settings.chromakey_color
@@ -139,7 +138,9 @@ async def _generate(args: argparse.Namespace) -> None:
     result.image.save(out_dir / "raw.png")
     print(f"  Raw: {result.image.width}x{result.image.height}")
 
-    # Second pass: remove platforms + labels
+    # Second pass: remove platforms + labels (Gemini)
+    from pixel_magic.prompts import build_generation_cleanup_prompt
+
     cleanup_prompt = build_generation_cleanup_prompt(
         view_count, chromakey_color,
         grid_cols=grid_cols,

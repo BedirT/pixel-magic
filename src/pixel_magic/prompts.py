@@ -292,26 +292,40 @@ def build_generation_canvas_prompt(
     if grid_cols and grid_rows:
         layout_desc = f" arranged in a {grid_cols}x{grid_rows} grid"
 
-    return f"""\
-This image shows {len(views)} labeled {floor_desc}s{layout_desc} on a {chromakey_color} ({hex_color}) background. Each platform has a direction label in the corner.
+    if tiles > 1:
+        centering_rule = "- The character must be CENTERED on each tile grid — standing in the middle, not at the edge"
+        size_hint = "The character should be large enough to fill most of the platform"
+    else:
+        centering_rule = "- The character must be centered on each platform"
+        size_hint = "The character should be tall — about 2-3x the height of the platform"
 
-Draw the SAME pixel art character on every platform, facing the labeled direction:
+    return f"""\
+The reference image shows the layout: {len(views)} isometric stone platforms{layout_desc} on {chromakey_color} ({hex_color}) background, each labeled with a facing direction.
+
+Generate a pixel art character sprite sheet matching this layout. For each labeled platform position, draw the SAME character in a standing idle pose facing that direction:
 {view_list}
 
 The character is: {character_description}
 
-RULES:
-- The character must be IDENTICAL across all platforms — same proportions, colors, outfit, pixel art style
-- Only the facing direction changes between platforms
-- The character's feet must rest on the platform surface
-- Maintain the isometric 3/4 top-down perspective — the platform establishes the ground plane
+PLACEMENT:
+- Each character must be standing ON an isometric stone platform identical to those in the reference
+- {centering_rule}
+- The character's feet must touch the platform surface — firmly planted, not floating
+- {size_hint}
+- Match the platform positions and spacing from the reference image
+
+CHARACTER CONSISTENCY:
+- Every view must show the EXACT same character — identical proportions, colors, outfit, accessories
+- Only the facing direction changes between views
+
+STYLE:
 - Style: {style}
+- Isometric 3/4 top-down perspective (~30 degrees from above)
 - Pixel art: hard pixel edges, no anti-aliasing, no smoothing
-- 1-pixel black outline on all character elements
+- 1-pixel black outline on ALL character elements
 - Maximum {max_colors} colors in the character palette
 - Simple 2-3 tone stepped shading per color area
-- {chromakey_color} ({hex_color}) background must remain around the character and platform
-- Do NOT modify the platforms or labels — draw the character standing ON TOP of them"""
+- {chromakey_color} ({hex_color}) background everywhere around characters and platforms"""
 
 
 def build_generation_cleanup_prompt(
