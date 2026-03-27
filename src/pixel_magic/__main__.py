@@ -21,7 +21,6 @@ def _build_parser() -> argparse.ArgumentParser:
     gen.add_argument("--name", required=True, help="Character name (used as output folder)")
     gen.add_argument("--description", required=True, help="Character description")
     gen.add_argument("--directions", type=int, default=4, choices=[4, 8], help="Number of directions (default: 4)")
-    gen.add_argument("--provider", choices=["openai", "gemini"], help="Override provider (default: from .env)")
     gen.add_argument("--output-dir", default="output", help="Output directory (default: output)")
     gen.add_argument("--resolution", default="64x64", help="Target resolution per view (default: 64x64)")
     gen.add_argument("--max-colors", type=int, default=16, help="Max color count (default: 16)")
@@ -78,9 +77,9 @@ def _view_labels(directions: int) -> list[str]:
 async def _generate(args: argparse.Namespace) -> None:
     from pixel_magic.config import Settings
     from pixel_magic.prompts import build_character_sheet_prompt
+    from pixel_magic.providers.gemini import GeminiProvider
 
     settings = Settings()
-    provider_name = args.provider or settings.provider
     chromakey_color = args.chromakey or settings.chromakey_color
 
     # Build prompt
@@ -91,30 +90,18 @@ async def _generate(args: argparse.Namespace) -> None:
         resolution=args.resolution,
         max_colors=args.max_colors,
         palette_hint=args.palette_hint,
-        provider=provider_name,
         chromakey_color=chromakey_color,
     )
 
     # Create provider
-    if provider_name == "openai":
-        from pixel_magic.providers.openai import OpenAIProvider
-
-        provider = OpenAIProvider(
-            api_key=settings.openai_api_key,
-            model=settings.openai_model,
-            quality=settings.openai_quality,
-        )
-    else:
-        from pixel_magic.providers.gemini import GeminiProvider
-
-        provider = GeminiProvider(
-            api_key=settings.google_api_key,
-            model=settings.gemini_image_model,
-        )
+    provider = GeminiProvider(
+        api_key=settings.google_api_key,
+        model=settings.gemini_image_model,
+    )
 
     # Generate
     view_count = 2 if args.directions == 4 else 5
-    print(f"Generating {args.name} ({view_count} views, {provider_name})...")
+    print(f"Generating {args.name} ({view_count} views)...")
     result = await provider.generate(prompt)
 
     # Save raw image — zero processing
@@ -124,16 +111,13 @@ async def _generate(args: argparse.Namespace) -> None:
     result.image.save(raw_path)
     print(f"Saved raw: {raw_path} ({result.image.width}x{result.image.height})")
 
-    # Remove chromakey background for Gemini images
-    if provider_name == "gemini":
-        from pixel_magic.background import remove_background
+    # Remove chromakey background
+    from pixel_magic.background import remove_background
 
-        sheet = remove_background(result.image, chromakey_color=chromakey_color)
-        sheet_path = out_dir / "sheet.png"
-        sheet.save(sheet_path)
-        print(f"Saved sheet: {sheet_path} (background removed)")
-    else:
-        sheet = result.image
+    sheet = remove_background(result.image, chromakey_color=chromakey_color)
+    sheet_path = out_dir / "sheet.png"
+    sheet.save(sheet_path)
+    print(f"Saved sheet: {sheet_path} (background removed)")
 
     # Extract individual sprites
     from pixel_magic.extract import extract_sprites

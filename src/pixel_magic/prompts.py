@@ -50,18 +50,14 @@ _VIEWS_8DIR: list[dict[str, str]] = [
 ]
 
 
-def _background_instruction(provider: str, chromakey_color: str = "green") -> str:
-    if provider == "gemini":
-        hex_color = _CHROMAKEY_HEX.get(chromakey_color, "#00FF00")
-        return f"solid {chromakey_color} ({hex_color}) background (every non-sprite pixel must be exactly {hex_color})"
-    return "fully transparent background (every non-sprite pixel must be alpha=0)"
+def _background_instruction(chromakey_color: str = "green") -> str:
+    hex_color = _CHROMAKEY_HEX.get(chromakey_color, "#00FF00")
+    return f"solid {chromakey_color} ({hex_color}) background (every non-sprite pixel must be exactly {hex_color})"
 
 
-def _background_rule(provider: str, chromakey_color: str = "green") -> str:
-    if provider == "gemini":
-        hex_color = _CHROMAKEY_HEX.get(chromakey_color, "#00FF00")
-        return f"The ENTIRE image background MUST be solid {chromakey_color} ({hex_color}) — no transparency, no gradients, no shadows, just flat {chromakey_color}"
-    return "The ENTIRE image background MUST be fully transparent (alpha=0) — no solid fill, no shadows, no floor"
+def _background_rule(chromakey_color: str = "green") -> str:
+    hex_color = _CHROMAKEY_HEX.get(chromakey_color, "#00FF00")
+    return f"The ENTIRE image background MUST be solid {chromakey_color} ({hex_color}) — no transparency, no gradients, no shadows, just flat {chromakey_color}"
 
 
 def build_character_sheet_prompt(
@@ -71,7 +67,6 @@ def build_character_sheet_prompt(
     resolution: str = "64x64",
     max_colors: int = 16,
     palette_hint: str = "",
-    provider: str = "openai",
     chromakey_color: str = "green",
 ) -> str:
     """Build a JSON-structured prompt for multi-view character reference sheet."""
@@ -83,8 +78,8 @@ def build_character_sheet_prompt(
         "purpose": "character_sprite_reference_sheet",
         "background": {
             "type": "transparent",
-            "rule": _background_rule(provider, chromakey_color),
-            "instruction": _background_instruction(provider, chromakey_color),
+            "rule": _background_rule(chromakey_color),
+            "instruction": _background_instruction(chromakey_color),
         },
         "views": views,
         "character": {

@@ -17,16 +17,8 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Provider
-    provider: Literal["openai", "gemini"] = "openai"
-
     # API keys
-    openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
     google_api_key: str = Field(default="", alias="GOOGLE_API_KEY")
-
-    # OpenAI
-    openai_model: str = "gpt-image-1.5"
-    openai_quality: Literal["low", "medium", "high"] = "medium"
 
     # Gemini
     gemini_image_model: str = "gemini-3.1-flash-image-preview"
