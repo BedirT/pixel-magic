@@ -19,11 +19,11 @@ We need to generate a character sprite sheet from a text description: multiple i
 
 ## Prompt Engineering
 
-### JSON vs Narrative Prompts
+### From Plain Prompts to JSON
 
-**Tried:** Both narrative prose prompts and structured JSON prompts for character sheet generation.
+**First attempt:** Plain natural language prompts — "draw a pixel art samurai facing 4 directions on a transparent background." This produced usable results but with inconsistent layouts, view placement, and style adherence. The model would sometimes arrange views vertically, sometimes diagonally, sometimes overlapping.
 
-**Result:** JSON prompts produce more consistent, structured output. Models respond well to JSON because:
+**What worked:** Moving to structured JSON prompts. Models respond much better to JSON because:
 - Clear separation of concerns (views, style, background rules are discrete fields)
 - Explicit per-view facing descriptions prevent ambiguity
 - Structured layout instructions reduce hallucinated arrangements
@@ -81,7 +81,7 @@ Critical prompt rules that significantly affect output quality:
 ### OpenAI (gpt-image-1.5)
 
 **Strengths:**
-- Native alpha transparency — no background removal needed
+- Native alpha transparency — no background removal needed, sprites come ready to use
 - Higher resolution output (~1024px)
 - More literal prompt following — JSON structure is respected closely
 
@@ -90,13 +90,11 @@ Critical prompt rules that significantly affect output quality:
 - Can over-detail sprites (too many colors, too complex)
 - Sometimes ignores the "16 colors" constraint
 
-**Best for:** High-detail character sheets where you want maximum fidelity and can accept more colors.
-
 ### Gemini (gemini-3.1-flash-image-preview)
 
 **Strengths:**
+- Better pixel art generation quality — produces cleaner, more retro-looking output
 - Cheaper per generation
-- Better at pixel art style — produces cleaner, more retro output
 - Multimodal input — can accept reference images for animation
 - Faster generation times
 - `image_config` allows aspect ratio and output size control
@@ -106,19 +104,19 @@ Critical prompt rules that significantly affect output quality:
 - Chromakey sometimes bleeds into the sprite (especially green-tinted characters)
 - Output size defaults to 1K unless explicitly configured
 
-**Best for:** Pixel art sprites, animation (multimodal), cost-sensitive batch generation.
-
 ### Why We Use Both
 
-`generate` command supports both providers via `--provider`. Gemini is the default for the `animate` command because it's the only provider supporting multimodal input (reference image + prompt).
+Overall sprite generation quality seems to be better with Gemini — the pixel art style is cleaner and more authentic. But OpenAI's native transparency is a significant convenience. Both produce usable results, so we give the user the choice via `--provider`. Gemini is the default for the `animate` command because it's the only provider supporting multimodal input (reference image + prompt).
 
 ---
 
 ## Background Handling
 
-### The Chromakey Problem
+### The Transparency Problem
 
-Gemini can't produce transparent backgrounds. It generates sprites on a solid colored background. We chose chromakey (solid green #00FF00 or blue #0000FF) because:
+When we asked Gemini to produce a transparent background, it generated fake transparency — grey and white checkerboard patterns mimicking what transparency looks like in image editors. The model doesn't understand actual alpha channels; it renders what transparency *looks like* visually.
+
+**The solution:** Ask for a solid color background instead, then remove it programmatically. We chose chromakey (solid green #00FF00 or blue #0000FF) because:
 
 1. Pure green/blue are maximally distant from typical sprite colors
 2. Standard chroma keying is a well-understood technique
@@ -126,17 +124,19 @@ Gemini can't produce transparent backgrounds. It generates sprites on a solid co
 
 **Green vs Blue chromakey:**
 - Green (#00FF00) is the default — works for most characters
-- Blue (#0000FF) is the fallback — use for green-skinned characters (goblins, orcs, plants)
+- Blue (#0000FF) is the fallback for green-skinned characters (goblins, orcs, plants) where green chromakey bleeds into the sprite
 - Configurable via `--chromakey blue` or `PIXEL_MAGIC_CHROMAKEY_COLOR=blue`
 
 ### Background Removal Pipeline
 
-Simple color thresholding (replace all green pixels with alpha) doesn't work because:
-- Models anti-alias sprite edges against the chromakey color
-- Semi-transparent fringe pixels contain a mix of sprite + background color
-- Hard thresholding leaves visible halos or eats into the sprite
+We tried several approaches for removing the chromakey background:
 
-Our two-stage pipeline:
+1. **Simple color thresholding** (replace all green pixels with alpha) — leaves ugly halos because models anti-alias sprite edges against the background color
+2. **Color-distance thresholding** (remove pixels within a color distance from green) — either eats into the sprite or misses fringe pixels, no good threshold exists
+3. **rembg (U2-Net segmentation)** — neural network approach, much better edge quality but leaves residual color on edge pixels
+4. **rembg + color-aware despill** — best results, what we ship
+
+The two-stage pipeline we use:
 
 **Stage 1: U2-Net Segmentation (rembg)**
 - Neural network trained for salient object detection
@@ -188,9 +188,15 @@ This handles all the edge cases: uneven spacing, stray pixels, separated accesso
 
 ### The Problem
 
-AI-generated sprites are ~300-500px, rendered at model resolution. For game use, we need true pixel art at 32×32, 64×64, etc. Naive downscaling (bilinear/bicubic) blurs everything — pixel art needs nearest-neighbor, but you need to know the underlying pixel grid first.
+AI-generated sprites are ~300-500px, rendered at model resolution. For game use, we need true pixel art at 32×32, 64×64, etc. The AI output *looks like* pixel art but isn't actually grid-aligned — pixels are slightly irregular, colors aren't perfectly flat, and edges have subtle anti-aliasing. It's "AI pixel art" not "real pixel art."
 
-### Our Approach (proper-pixel-art library)
+### First Attempt: Manual Resizing
+
+We first tried writing our own resize pipeline: nearest-neighbor downscaling at various ratios, followed by color quantization. This produced mediocre results because the AI output's pixel grid doesn't align cleanly to any integer ratio. You get artifacts, misaligned edges, and color bleeding.
+
+### Solution: proper-pixel-art Library
+
+We found the [proper-pixel-art](https://github.com/KennethJAllen/proper-pixel-art) library which does exactly what we need — it converts "AI pixel art" to actual pixel art by detecting the underlying grid and resampling properly:
 
 1. **Grid detection** — Canny edge detection finds pixel boundaries, morphological closing fills gaps, probabilistic Hough line transform identifies the grid spacing
 2. **Color sampling** — For each cell in the detected grid, sample the dominant color using offset binning (dual-grid approach that avoids boundary artifacts)
@@ -198,7 +204,7 @@ AI-generated sprites are ~300-500px, rendered at model resolution. For game use,
 4. **Nearest-neighbor resize** — Scale to target size preserving hard edges
 5. **Center on canvas** — Place on transparent NxN canvas
 
-**Why not just resize with NEAREST?** Because the AI output isn't aligned to a pixel grid. A 300px sprite with an underlying 32px grid has ~9.4 model pixels per game pixel. NEAREST sampling at arbitrary ratios produces artifacts. Detecting the actual grid first ensures clean downscaling.
+**Why this works better than naive NEAREST:** The library detects the *actual* pixel grid in the AI output (which might be 9.4 model pixels per intended game pixel), then resamples one true color per cell. This eliminates the artifacts that come from downscaling at arbitrary non-integer ratios.
 
 **Valid target sizes:** 16, 32, 48, 64, 96, 128, 256
 
