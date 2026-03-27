@@ -104,9 +104,17 @@ Critical prompt rules that significantly affect output quality:
 - Chromakey sometimes bleeds into the sprite (especially green-tinted characters)
 - Output size defaults to 1K unless explicitly configured
 
-### Why We Use Both
+### Current Selection: Gemini Only
 
-Overall sprite generation quality seems to be better with Gemini — the pixel art style is cleaner and more authentic. But OpenAI's native transparency is a significant convenience. Both produce usable results, so we give the user the choice via `--provider`. Gemini is the default for the `animate` command because it's the only provider supporting multimodal input (reference image + prompt).
+Both providers produce usable results, and OpenAI's native transparency was a real advantage. However, we consolidated on Gemini for several reasons:
+
+1. **Better pixel art quality** — Gemini consistently produces cleaner, more retro-looking sprites
+2. **Multimodal input** — required for both the canvas-based generation and animation pipelines (send platform template image + prompt)
+3. **Cheaper** — lower cost per generation
+4. **Simpler codebase** — one provider means less branching, fewer edge cases
+5. **Transparency solved** — chromakey + rembg + despill produces clean transparency reliably
+
+OpenAI remains a viable alternative if someone wanted to fork and add it back. The provider abstraction (`providers/base.py`) is still in place.
 
 ---
 
@@ -207,6 +215,29 @@ We found the [proper-pixel-art](https://github.com/KennethJAllen/proper-pixel-ar
 **Why this works better than naive NEAREST:** The library detects the *actual* pixel grid in the AI output (which might be 9.4 model pixels per intended game pixel), then resamples one true color per cell. This eliminates the artifacts that come from downscaling at arbitrary non-integer ratios.
 
 **Valid target sizes:** 16, 32, 48, 64, 96, 128, 256
+
+---
+
+## Canvas-Based Generation with Platforms
+
+The latest evolution of the pipeline uses the same platform system developed for animation. Instead of a text-only prompt, we:
+
+1. **Build a canvas** with empty isometric platforms in a grid, each labeled with its facing direction (e.g. "FRONT LEFT", "BACK RIGHT")
+2. **Send canvas + prompt** to Gemini (multimodal) — the model sees the platforms and draws characters on them
+3. **Second pass** removes platforms and labels
+4. **rembg + despill** removes remaining chromakey background
+5. **Extract sprites** via connected-component analysis
+
+**Why platforms work for generation too:**
+- Establishes the isometric ground plane — model maintains consistent 3/4 top-down angle across all views
+- Direction labels are unambiguous — model knows exactly which way each view should face
+- Tile size communicates character footprint — a 2×2 platform tells the model this is a larger creature
+- Grid layout matches Gemini's supported aspect ratios — better output quality
+
+**Grid layout:**
+- 4-dir (2 views): side by side in one row
+- 8-dir (5 views): 3 top, 2 bottom centered
+- Canvas padded to nearest Gemini ratio (1:1, 5:4, 4:3, 3:2, 16:9)
 
 ---
 
