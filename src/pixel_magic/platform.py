@@ -76,21 +76,24 @@ def create_platform_grid(
         tile_width += 1
 
     # Full grid diamond dimensions
+    # Image is 1px wider/taller than grid_size*tile_width so the diamond
+    # corners land at exact tile_width multiples. This makes full_w - cx == cx
+    # and bot - cy == cy, so all grid divisions are exact integers (zero rounding error).
     full_w = grid_size * tile_width
     diamond_h = full_w // 2
-    total_h = diamond_h + tile_depth
+    total_h = diamond_h + 1 + tile_depth
 
-    img = Image.new("RGBA", (full_w, total_h), (0, 0, 0, 0))
+    img = Image.new("RGBA", (full_w + 1, total_h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
     cx = full_w // 2
     cy = diamond_h // 2
-    bot = diamond_h - 1
+    bot = diamond_h
 
     # Draw unified block (same as single tile but scaled up)
-    top_face = [(cx, 0), (full_w - 1, cy), (cx, bot), (0, cy)]
+    top_face = [(cx, 0), (full_w, cy), (cx, bot), (0, cy)]
     left_face = [(0, cy), (cx, bot), (cx, bot + tile_depth), (0, cy + tile_depth)]
-    right_face = [(full_w - 1, cy), (cx, bot), (cx, bot + tile_depth), (full_w - 1, cy + tile_depth)]
+    right_face = [(full_w, cy), (cx, bot), (cx, bot + tile_depth), (full_w, cy + tile_depth)]
 
     draw.polygon(left_face, fill=_LEFT_COLOR)
     draw.polygon(right_face, fill=_RIGHT_COLOR)
@@ -99,8 +102,8 @@ def create_platform_grid(
     # Outer silhouette
     silhouette = [
         (cx, 0),
-        (full_w - 1, cy),
-        (full_w - 1, cy + tile_depth),
+        (full_w, cy),
+        (full_w, cy + tile_depth),
         (cx, bot + tile_depth),
         (0, cy + tile_depth),
         (0, cy),
@@ -113,39 +116,22 @@ def create_platform_grid(
         )
 
     # Draw tile grid lines on the top face only
-    # The top face diamond has corners: top(cx,0), right(full_w-1,cy), bottom(cx,bot), left(0,cy)
-    # Grid lines connect evenly spaced points on opposite edges
-    half_tile = tile_width // 2
-    quarter_tile = tile_width // 4
-
-    # Lines parallel to left→bottom edge (going top-right to bottom-left)
-    for i in range(1, grid_size):
-        # Point on top→right edge
-        sx = cx + i * half_tile
-        sy = i * quarter_tile
-        # Point on left→bottom edge
-        ex = i * half_tile - half_tile
-        ey = cy + i * quarter_tile - quarter_tile
-        # Correct: walk along each edge proportionally
-        t = i / grid_size
-        # top-right edge: from (cx,0) to (full_w-1,cy)
-        sx = int(cx + t * (full_w - 1 - cx))
-        sy = int(t * cy)
-        # left-bottom edge: from (0,cy) to (cx,bot)
-        ex = int(t * cx)
-        ey = int(cy + t * (bot - cy))
-        draw.line([(sx, sy), (ex, ey)], fill=_OUTLINE, width=1)
-
-    # Lines parallel to right→bottom edge (going top-left to bottom-right)
+    # With the +1 image sizing, all divisions are exact: t*cx and t*cy are always integers
     for i in range(1, grid_size):
         t = i / grid_size
-        # top-left edge: from (cx,0) to (0,cy)
-        sx = int(cx - t * cx)
-        sy = int(t * cy)
-        # right-bottom edge: from (full_w-1,cy) to (cx,bot)
-        ex = int(full_w - 1 - t * (full_w - 1 - cx))
-        ey = int(cy + t * (bot - cy))
-        draw.line([(sx, sy), (ex, ey)], fill=_OUTLINE, width=1)
+        # Lines parallel to left→bottom edge (NE-SW)
+        draw.line([
+            (int(cx + t * cx), int(t * cy)),
+            (int(t * cx), int(cy + t * cy)),
+        ], fill=_OUTLINE, width=1)
+
+    for i in range(1, grid_size):
+        t = i / grid_size
+        # Lines parallel to right→bottom edge (NW-SE)
+        draw.line([
+            (int(cx - t * cx), int(t * cy)),
+            (int(full_w - t * cx), int(cy + t * cy)),
+        ], fill=_OUTLINE, width=1)
 
     return img
 
