@@ -228,7 +228,7 @@ All video models — including Hailuo I2V-01-Live (marketed for "2D art animatio
 **What we built:**
 - Grid canvas layout (`build_canvas()`) — frames in cols×rows targeting supported Gemini ratios (1:1, 5:4, 4:3, 3:2, 16:9)
 - Pixel-art frame numbers — hardcoded 3×5 bitmap digits, white with black outline, top-left of each cell
-- Multi-tile isometric platforms (`create_platform_grid()`) — 1 tile (walk/idle), 4 tiles / 2×2 (attack), 9 tiles / 3×3 (cast/spell)
+- Multi-tile isometric platforms (`create_platform_grid()`) — 1 tile (walk/idle), 4 tiles / 2×2 (attack), 9 tiles / 3×3 (cast/spell). Drawn as unified blocks with grid lines (not pasted individual tiles — eliminates seam artifacts)
 - Auto char_scale — character shrinks for larger grids (0.80 / 0.54 / 0.40) keeping canvas compact
 - Character centered on tile grid — feet positioned at grid center, not top
 - Gemini `image_config` — passes `aspect_ratio` and `image_size` to control output dimensions

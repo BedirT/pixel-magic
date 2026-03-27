@@ -76,45 +76,31 @@ Critical prompt rules that significantly affect output quality:
 
 ---
 
-## Provider Comparison
+## Provider: Gemini
 
-### OpenAI (gpt-image-1.5)
-
-**Strengths:**
-- Native alpha transparency — no background removal needed, sprites come ready to use
-- Higher resolution output (~1024px)
-- More literal prompt following — JSON structure is respected closely
-
-**Weaknesses:**
-- More expensive per generation
-- Can over-detail sprites (too many colors, too complex)
-- Sometimes ignores the "16 colors" constraint
-
-### Gemini (gemini-3.1-flash-image-preview)
+We use **Gemini (gemini-3.1-flash-image-preview)** exclusively.
 
 **Strengths:**
 - Better pixel art generation quality — produces cleaner, more retro-looking output
-- Cheaper per generation
-- Multimodal input — can accept reference images for animation
+- Cheaper per generation (~$0.01)
+- Multimodal input — required for the canvas-based pipeline (reference image + prompt)
 - Faster generation times
-- `image_config` allows aspect ratio and output size control
+- `image_config` allows aspect ratio and output size control (`512`, `1K`, `2K`, `4K`)
 
 **Weaknesses:**
 - Cannot produce transparent backgrounds — requires chromakey + post-processing
 - Chromakey sometimes bleeds into the sprite (especially green-tinted characters)
-- Output size defaults to 1K unless explicitly configured
+- Output size defaults to 1K unless explicitly configured via `image_config`
 
-### Current Selection: Gemini Only
+### Why not OpenAI?
 
-Both providers produce usable results, and OpenAI's native transparency was a real advantage. However, we consolidated on Gemini for several reasons:
-
-1. **Better pixel art quality** — Gemini consistently produces cleaner, more retro-looking sprites
-2. **Multimodal input** — required for both the canvas-based generation and animation pipelines (send platform template image + prompt)
-3. **Cheaper** — lower cost per generation
+OpenAI (gpt-image-1.5) was evaluated. It offered native alpha transparency (no background removal needed) and higher resolution output. However:
+1. **No multimodal input** — can't send a reference canvas image, which the platform pipeline requires
+2. **More expensive** per generation
+3. **Over-details** sprites — ignores the 16-color constraint, produces too-complex output
 4. **Simpler codebase** — one provider means less branching, fewer edge cases
-5. **Transparency solved** — chromakey + rembg + despill produces clean transparency reliably
 
-OpenAI remains a viable alternative if someone wanted to fork and add it back. The provider abstraction (`providers/base.py`) is still in place.
+The provider abstraction (`providers/base.py`) remains if someone wants to add OpenAI back.
 
 ---
 
@@ -219,26 +205,54 @@ We found the [proper-pixel-art](https://github.com/KennethJAllen/proper-pixel-ar
 
 ---
 
-## Canvas-Based Generation with Platforms
+## Canvas-Based Generation with Platforms (Current Default)
 
-The latest evolution of the pipeline uses the same platform system developed for animation. Instead of a text-only prompt, we:
+Platform-guided generation is now the **default** for `pixel-magic generate`. Text-only generation is available via `--no-platform` for maximum creative freedom.
+
+### Pipeline
 
 1. **Build a canvas** with empty isometric platforms in a grid, each labeled with its facing direction (e.g. "FRONT LEFT", "BACK RIGHT")
 2. **Send canvas + prompt** to Gemini (multimodal) — the model sees the platforms and draws characters on them
-3. **Second pass** removes platforms and labels
+3. **Second pass** removes platforms and direction labels
 4. **rembg + despill** removes remaining chromakey background
 5. **Extract sprites** via connected-component analysis
 
-**Why platforms work for generation too:**
+### Why platforms work for generation
+
 - Establishes the isometric ground plane — model maintains consistent 3/4 top-down angle across all views
 - Direction labels are unambiguous — model knows exactly which way each view should face
 - Tile size communicates character footprint — a 2×2 platform tells the model this is a larger creature
 - Grid layout matches Gemini's supported aspect ratios — better output quality
 
-**Grid layout:**
+### Grid layout
+
 - 4-dir (2 views): side by side in one row
 - 8-dir (5 views): 3 top, 2 bottom centered
 - Canvas padded to nearest Gemini ratio (1:1, 5:4, 4:3, 3:2, 16:9)
+
+### Platform rendering
+
+Platforms are drawn as unified isometric blocks with tile division grid lines — not by pasting individual tiles. This eliminates visible seams between tiles.
+
+**Evolution:**
+1. **v1 — Tile pasting:** Created individual isometric tiles and pasted them in a diamond grid. This produced visible seam artifacts where tiles overlapped, and tile outlines doubled up at edges.
+2. **v2 — Unified block with grid lines:** Draws one large isometric block (top face, left face, right face as filled polygons), then overlays tile division lines on the top face only. Grid lines are drawn by linear interpolation along the diamond edges. Much cleaner rendering.
+
+**Tile scaling for multi-tile grids:**
+- Grid sizes > 1 scale down the individual tile width to prevent platforms from dominating the canvas
+- Scale factors: 1-tile = 1.0×, 2×2 = 0.7×, 3×3 = 0.45× of the base `tile_width` (256px)
+- Slot dimensions stay based on the base tile_width — only the platform inside shrinks
+- This keeps canvas sizes manageable while still giving Gemini the visual cue of a larger floor area
+
+**Character placement (`--char-ratio`):**
+- `char_ratio` (default 1.2) controls the space above the platform reserved for the character
+- Character height = `tile_width × char_ratio`
+- Character feet positioned at the center of the platform's diamond top face
+- Higher ratio = more headroom, lower ratio = character fills more of the slot
+
+### Text-only fallback (`--no-platform`)
+
+Disables the platform canvas pipeline entirely. Uses a JSON-structured prompt with view definitions, style rules, and layout instructions — no reference image sent. This gives the model more creative freedom but less perspective control. Useful when platforms interfere with the character design (e.g., flying characters, characters that don't stand on ground)
 
 ---
 
@@ -246,13 +260,15 @@ The latest evolution of the pipeline uses the same platform system developed for
 
 | Decision | Choice | Why |
 |----------|--------|-----|
-| Prompt format | JSON (generation), Narrative (animation) | JSON for structure, narrative for creative freedom |
-| Default provider | Gemini | Cheaper, better pixel art, multimodal |
+| Provider | Gemini only | Cheaper, better pixel art, multimodal input required for canvas pipeline |
+| Default generation | Platform-guided canvas | Perspective grounding, direction labels, tile footprint communication |
+| Prompt format | JSON (text-only generation), Narrative (platform generation + animation) | JSON for structure, narrative for creative freedom with visual context |
 | Background | Chromakey + rembg + despill | Neural segmentation > thresholding |
 | Extraction | Connected-component analysis | Handles inconsistent model placement |
 | Resizing | Grid detection + nearest-neighbor | Preserves true pixel grid |
 | View count | 2 views (4-dir), 5 views (8-dir) | Fewer views = better consistency, mirror the rest |
 | Color limit | 16 by default | Forces model into retro pixel art discipline |
+| Platform rendering | Unified block + grid lines | Cleaner than tile pasting, no seam artifacts |
 | Raw output | Always saved untouched | Debugging + comparison baseline |
 
 ---
@@ -261,15 +277,16 @@ The latest evolution of the pipeline uses the same platform system developed for
 
 | Provider | Model | Cost/generation | Quality |
 |----------|-------|----------------|---------|
-| OpenAI | gpt-image-1.5 | ~$0.02-0.08 | High detail, sometimes over-detailed |
-| Gemini | gemini-3.1-flash | ~$0.01 | Clean pixel art, needs bg removal |
+| Gemini | gemini-3.1-flash | ~$0.01 (single pass), ~$0.02 (with platform cleanup) | Clean pixel art, needs bg removal |
+
+OpenAI (gpt-image-1.5) was evaluated and removed. It offered native alpha transparency but was more expensive, sometimes over-detailed sprites, and couldn't accept reference images for the canvas pipeline. The provider abstraction (`providers/base.py`) remains if someone wants to add it back.
 
 ---
 
 ## What Could Be Improved
 
-1. **Higher-resolution base sprites** — 256×256 base instead of 64×64 for more detail per view
-2. **Multi-pass generation** — Generate each view separately for better consistency, then composite
-3. **Style transfer from reference** — Use an existing sprite as a style reference for new characters
-4. **Automatic quality evaluation** — Detect and retry when views are inconsistent or malformed
-5. **Palette extraction + enforcement** — Extract palette from frame 1, enforce on subsequent generations
+1. **Multi-pass generation** — Generate each view separately for better consistency, then composite
+2. **Style transfer from reference** — Use an existing sprite as a style reference for new characters
+3. **Automatic quality evaluation** — Detect and retry when views are inconsistent or malformed
+4. **Palette extraction + enforcement** — Extract palette from frame 1, enforce on subsequent generations
+5. **Platform grid line alignment** — Grid lines on the top face of multi-tile platforms need to properly extend down the side faces for visual consistency (currently top-face only)
