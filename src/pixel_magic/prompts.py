@@ -250,3 +250,90 @@ RULES:
 - Fill where the platforms and numbers were with solid {chromakey_color} ({hex_color})
 - The output must be the same dimensions as the input
 - Maintain the same {layout_desc} frame layout"""
+
+
+# ---------------------------------------------------------------------------
+# Canvas-based character generation prompts (platform-based)
+# ---------------------------------------------------------------------------
+
+
+def build_generation_canvas_prompt(
+    character_description: str,
+    direction_mode: int = 4,
+    style: str = "16-bit SNES RPG style",
+    max_colors: int = 16,
+    chromakey_color: str = "green",
+    tiles: int = 1,
+    grid_cols: int | None = None,
+    grid_rows: int | None = None,
+) -> str:
+    """Build a prompt for canvas-based character generation.
+
+    The caller creates a canvas with labeled platforms in a grid.
+    The model draws the same character on each platform facing the labeled direction.
+    """
+    hex_color = _CHROMAKEY_HEX.get(chromakey_color, "#00FF00")
+    views = _VIEWS_4DIR if direction_mode == 4 else _VIEWS_8DIR
+
+    if tiles == 1:
+        floor_desc = "an isometric stone platform"
+    elif tiles == 4:
+        floor_desc = "a 2x2 isometric stone tile floor"
+    else:
+        floor_desc = "a 3x3 isometric stone tile floor"
+
+    view_list = "\n".join(
+        f"  - Platform labeled \"{v['facing'].split('(')[0].strip()}\": "
+        f"draw the character {v['description'].lower()}"
+        for v in views
+    )
+
+    layout_desc = ""
+    if grid_cols and grid_rows:
+        layout_desc = f" arranged in a {grid_cols}x{grid_rows} grid"
+
+    return f"""\
+This image shows {len(views)} labeled {floor_desc}s{layout_desc} on a {chromakey_color} ({hex_color}) background. Each platform has a direction label in the corner.
+
+Draw the SAME pixel art character on every platform, facing the labeled direction:
+{view_list}
+
+The character is: {character_description}
+
+RULES:
+- The character must be IDENTICAL across all platforms — same proportions, colors, outfit, pixel art style
+- Only the facing direction changes between platforms
+- The character's feet must rest on the platform surface
+- Maintain the isometric 3/4 top-down perspective — the platform establishes the ground plane
+- Style: {style}
+- Pixel art: hard pixel edges, no anti-aliasing, no smoothing
+- 1-pixel black outline on all character elements
+- Maximum {max_colors} colors in the character palette
+- Simple 2-3 tone stepped shading per color area
+- {chromakey_color} ({hex_color}) background must remain around the character and platform
+- Do NOT modify the platforms or labels — draw the character standing ON TOP of them"""
+
+
+def build_generation_cleanup_prompt(
+    view_count: int,
+    chromakey_color: str = "green",
+    grid_cols: int | None = None,
+    grid_rows: int | None = None,
+) -> str:
+    """Prompt for removing platforms and labels from generated character sheet."""
+    hex_color = _CHROMAKEY_HEX.get(chromakey_color, "#00FF00")
+    if grid_cols and grid_rows:
+        layout_desc = f"arranged in a {grid_cols}x{grid_rows} grid"
+    else:
+        layout_desc = "in a row"
+    return f"""\
+This is a pixel art character sheet with {view_count} character views {layout_desc} on stone platforms. Each platform has a direction label in the corner.
+
+Remove the stone platforms AND the direction labels from EVERY view. Replace all platform and label pixels with {chromakey_color} ({hex_color}) background.
+
+RULES:
+- Keep the characters EXACTLY as they are — same proportions, colors, poses, pixel art style
+- Do NOT modify any character pixels — only remove the stone platforms and corner labels
+- Fill where the platforms and labels were with solid {chromakey_color} ({hex_color})
+- The output must be the same dimensions as the input
+- Maintain the same {layout_desc} layout"""
