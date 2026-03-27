@@ -11,10 +11,10 @@ dependencies = [
     "openai>=1.60.0",
     "Pillow>=10.0.0",
     "numpy>=1.26.0",
+    "scipy>=1.12.0",
     "pydantic>=2.6.0",
     "pydantic-settings>=2.2.0",
-    "rembg>=2.0.73",
-    "onnxruntime>=1.24.4",
+    "rembg[cpu]>=2.0.73",
     "proper-pixel-art>=0.2.0",
 ]
 

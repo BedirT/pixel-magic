@@ -1,6 +1,17 @@
 version = 1
 revision = 2
 requires-python = ">=3.12"
+resolution-markers = [
+    "python_full_version >= '3.14' and sys_platform == 'win32'",
+    "python_full_version >= '3.14' and sys_platform == 'emscripten'",
+    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version == '3.13.*' and sys_platform == 'win32'",
+    "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
+    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version < '3.13' and sys_platform == 'win32'",
+    "python_full_version < '3.13' and sys_platform == 'emscripten'",
+    "python_full_version < '3.13' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+]
 
 [[package]]
 name = "annotated-types"
@@ -692,7 +703,7 @@ wheels = [
 
 [[package]]
 name = "openai"
-version = "2.24.0"
+version = "2.29.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -704,9 +715,9 @@ dependencies = [
     { name = "tqdm" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/55/13/17e87641b89b74552ed408a92b231283786523edddc95f3545809fab673c/openai-2.24.0.tar.gz", hash = "sha256:1e5769f540dbd01cb33bc4716a23e67b9d695161a734aff9c5f925e2bf99a673", size = 658717, upload-time = "2026-02-24T20:02:07.958Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b4/15/203d537e58986b5673e7f232453a2a2f110f22757b15921cbdeea392e520/openai-2.29.0.tar.gz", hash = "sha256:32d09eb2f661b38d3edd7d7e1a2943d1633f572596febe64c0cd370c86d52bec", size = 671128, upload-time = "2026-03-17T17:53:49.599Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c9/30/844dc675ee6902579b8eef01ed23917cc9319a1c9c0c14ec6e39340c96d0/openai-2.24.0-py3-none-any.whl", hash = "sha256:fed30480d7d6c884303287bde864980a4b137b60553ffbcf9ab4a233b7a73d94", size = 1120122, upload-time = "2026-02-24T20:02:05.669Z" },
+    { url = "https://files.pythonhosted.org/packages/d0/b1/35b6f9c8cf9318e3dbb7146cc82dab4cf61182a8d5406fc9b50864362895/openai-2.29.0-py3-none-any.whl", hash = "sha256:b7c5de513c3286d17c5e29b92c4c98ceaf0d775244ac8159aeb1bddf840eb42a", size = 1141533, upload-time = "2026-03-17T17:53:47.348Z" },
 ]
 
 [[package]]
@@ -812,13 +823,13 @@ source = { editable = "." }
 dependencies = [
     { name = "google-genai" },
     { name = "numpy" },
-    { name = "onnxruntime" },
     { name = "openai" },
     { name = "pillow" },
     { name = "proper-pixel-art" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
-    { name = "rembg" },
+    { name = "rembg", extra = ["cpu"] },
+    { name = "scipy" },
 ]
 
 [package.optional-dependencies]
@@ -833,7 +844,6 @@ dev = [
 requires-dist = [
     { name = "google-genai", specifier = ">=1.0.0" },
     { name = "numpy", specifier = ">=1.26.0" },
-    { name = "onnxruntime", specifier = ">=1.24.4" },
     { name = "openai", specifier = ">=1.60.0" },
     { name = "pillow", specifier = ">=10.0.0" },
     { name = "proper-pixel-art", specifier = ">=0.2.0" },
@@ -842,8 +852,9 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0.0" },
-    { name = "rembg", specifier = ">=2.0.73" },
+    { name = "rembg", extras = ["cpu"], specifier = ">=2.0.73" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.4.0" },
+    { name = "scipy", specifier = ">=1.12.0" },
 ]
 provides-extras = ["dev"]
 
@@ -1145,6 +1156,11 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/df/b9/41584766be41e5b63db36d18468023d4bba2e23589963bfcfda788637ecf/rembg-2.0.73.tar.gz", hash = "sha256:f6c2718d0ea0edaabcd11b272f54de64b0a44ef3c526a3af75d7dafd5e67efd9", size = 29590, upload-time = "2026-03-15T12:43:27.531Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ad/55/efd6ff54dd629022671c556dcc144df49f643aa865dc6c5956f050776aa5/rembg-2.0.73-py3-none-any.whl", hash = "sha256:585eabf0c807068c7721012967d062385552b1355fcae98ce8af078b0d2d5576", size = 44252, upload-time = "2026-03-15T12:43:28.627Z" },
+]
+
+[package.optional-dependencies]
+cpu = [
+    { name = "onnxruntime" },
 ]
 
 [[package]]
