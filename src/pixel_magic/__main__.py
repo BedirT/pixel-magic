@@ -49,6 +49,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--tiles", type=int, default=1, choices=[1, 4, 9],
         help="Character tile footprint: 1 (default), 4 (2x2 — larger creature), 9 (3x3 — boss/mount).",
     )
+    gen.add_argument(
+        "--char-ratio", type=float, default=1.7,
+        help="Character height as multiple of tile width for platform placement (default: 1.7). "
+        "Lower (1.5) for chibi/SNES, higher (2.0) for tactical/detailed.",
+    )
 
     anim = sub.add_parser("animate", help="Generate animation frames for an existing character")
     anim.add_argument("--name", required=True, help="Character name (must exist in output dir)")
@@ -104,6 +109,7 @@ async def _generate(args: argparse.Namespace) -> None:
             view_labels=view_labels,
             tiles=args.tiles,
             chromakey_color=chromakey_color,
+            char_ratio=args.char_ratio,
         )
     )
     grid_rows = math.ceil(view_count / grid_cols)

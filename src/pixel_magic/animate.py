@@ -297,11 +297,18 @@ def build_generation_canvas(
     tile_depth: int = 16,
     tiles: int = 1,
     chromakey_color: str = "green",
+    char_ratio: float = 1.7,
 ) -> tuple[Image.Image, int, tuple[int, int], str, str, bool]:
     """Build a canvas with labeled platforms for character generation.
 
     Each platform gets a direction label in the top-left corner.
     For 5 views, the bottom row of 2 is centered.
+
+    char_ratio controls platform placement — the space above the platform
+    is sized for a character of height tile_width * char_ratio. This
+    positions the platform where a character's feet would be, but the
+    model may generate characters of different sizes. Default 1.7 is
+    mid-range for isometric RPG sprites (1.5 chibi, 2.0 tactical).
 
     Returns (canvas, cols, slot_size, aspect_ratio, image_size, center_bottom).
     """
@@ -317,13 +324,14 @@ def build_generation_canvas(
     grid_size = {1: 1, 4: 2, 9: 3}.get(tiles, 1)
     platform = create_platform_grid(tile_width, tile_depth, grid_size=grid_size)
 
-    # Slot dimensions: platform + room for character above
+    # Slot dimensions derived from tile geometry
+    char_height = int(tile_width * char_ratio)
     slot_w = max(platform.width + 20, tile_width * 2)
-    slot_h = int(slot_w * 1.4)  # portrait ratio for character + platform
+    slot_h = char_height + platform.height
 
-    # Platform positioning within slot: centered horizontally, near bottom
+    # Platform sits right below the character's feet
     plat_x = (slot_w - platform.width) // 2
-    plat_y = slot_h - platform.height - 10
+    plat_y = char_height
 
     # Snap to Gemini ratio
     raw_w = cols * slot_w
