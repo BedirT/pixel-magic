@@ -115,23 +115,31 @@ def create_platform_grid(
             width=1,
         )
 
-    # Draw tile grid lines on the top face only
+    # Draw tile grid lines — top face + vertical lines down the side faces
     # With the +1 image sizing, all divisions are exact: t*cx and t*cy are always integers
     for i in range(1, grid_size):
         t = i / grid_size
-        # Lines parallel to left→bottom edge (NE-SW)
+        # Top face: lines parallel to left→bottom edge (NE-SW)
         draw.line([
             (int(cx + t * cx), int(t * cy)),
             (int(t * cx), int(cy + t * cy)),
         ], fill=_OUTLINE, width=1)
+        # Left side face: vertical line down from the left-bottom edge division
+        lx = int(t * cx)
+        ly = int(cy + t * cy)
+        draw.line([(lx, ly), (lx, ly + tile_depth)], fill=_OUTLINE, width=1)
 
     for i in range(1, grid_size):
         t = i / grid_size
-        # Lines parallel to right→bottom edge (NW-SE)
+        # Top face: lines parallel to right→bottom edge (NW-SE)
         draw.line([
             (int(cx - t * cx), int(t * cy)),
             (int(full_w - t * cx), int(cy + t * cy)),
         ], fill=_OUTLINE, width=1)
+        # Right side face: vertical line down from the right-bottom edge division
+        rx = int(full_w - t * cx)
+        ry = int(cy + t * cy)
+        draw.line([(rx, ry), (rx, ry + tile_depth)], fill=_OUTLINE, width=1)
 
     return img
 
