@@ -77,6 +77,23 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Platform tile count: 1 (default), 4 (2x2 grid), 9 (3x3 grid). More tiles = more room for action poses.",
     )
 
+    tile = sub.add_parser("tile", help="Generate isometric terrain tiles")
+    tile_mode = tile.add_mutually_exclusive_group(required=True)
+    tile_mode.add_argument("--type", dest="tile_type", help="Single tile type with variants (e.g., grass, stone, water)")
+    tile_mode.add_argument("--theme", help="Themed tile set (e.g., forest, dungeon, desert, winter, custom)")
+    tile.add_argument("--variants", type=int, default=4, help="Number of variants per tile type (--type mode only, default: 4)")
+    tile.add_argument("--types", default="", help="Custom tile types for --theme custom (comma-separated)")
+    tile.add_argument("--output-dir", default="output", help="Output directory (default: output)")
+    tile.add_argument("--style", default="16-bit SNES RPG style", help="Art style")
+    tile.add_argument("--max-colors", type=int, default=16, help="Max color count (default: 16)")
+    tile.add_argument("--chromakey", choices=["green", "blue"], default=None, help="Chromakey color")
+    tile.add_argument("--depth", type=int, default=4, help="Tile side depth in pixels (default: 4, 0=flat)")
+    tile.add_argument(
+        "--sizes", default="",
+        help='Resize tiles to pixel art sizes (e.g. "32,64" or "all")',
+    )
+    tile.add_argument("--num-colors", type=int, default=None, help="Palette size for resized tiles")
+
     return parser
 
 
@@ -300,6 +317,131 @@ async def _animate(args: argparse.Namespace) -> None:
     print(f"Saved {len(anim_frames)} frames + sheet to {anim_dir}")
 
 
+async def _tile(args: argparse.Namespace) -> None:
+    from pixel_magic.config import Settings
+    from pixel_magic.providers.gemini import GeminiProvider
+    from pixel_magic.tile import (
+        build_tile_canvas,
+        extract_tiles,
+        fit_tile,
+        resolve_tile_labels,
+    )
+
+    settings = Settings()
+    chromakey_color = args.chromakey or settings.chromakey_color
+
+    # Resolve tile labels
+    set_name, tile_labels = resolve_tile_labels(
+        tile_type=args.tile_type,
+        theme=args.theme,
+        custom_types=args.types,
+        variants=args.variants,
+    )
+
+    out_dir = Path(args.output_dir) / "tiles" / set_name
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Build canvas with diamond wireframes
+    canvas, grid_cols, slot_size, aspect_ratio, image_size = build_tile_canvas(
+        tile_labels=tile_labels,
+        depth=args.depth,
+        chromakey_color=chromakey_color,
+    )
+    grid_rows = math.ceil(len(tile_labels) / grid_cols)
+    canvas.save(out_dir / "canvas_input.png")
+
+    print(f"Generating {set_name} tileset ({len(tile_labels)} tiles, depth={args.depth})...")
+    print(f"  Canvas: {canvas.width}x{canvas.height} ({grid_cols}x{grid_rows} grid)")
+    print(f"  Gemini: {aspect_ratio} ratio, {image_size} output")
+
+    provider = GeminiProvider(
+        api_key=settings.google_api_key,
+        model=settings.gemini_image_model,
+    )
+
+    # Gemini pass 1: fill diamonds with terrain
+    from pixel_magic.prompts import build_tile_canvas_prompt
+
+    prompt = build_tile_canvas_prompt(
+        tile_labels=tile_labels,
+        style=args.style,
+        max_colors=args.max_colors,
+        chromakey_color=chromakey_color,
+        depth=args.depth,
+        grid_cols=grid_cols,
+        grid_rows=grid_rows,
+    )
+
+    print("  Generating terrain tiles...")
+    result = await provider.generate_with_images(
+        prompt=prompt,
+        images=[canvas],
+        aspect_ratio=aspect_ratio,
+        image_size=image_size,
+    )
+    result.image.save(out_dir / "raw.png")
+    print(f"  Raw: {result.image.width}x{result.image.height}")
+
+    # Gemini pass 2: remove labels and wireframe guides
+    from pixel_magic.prompts import build_tile_cleanup_prompt
+
+    cleanup_prompt = build_tile_cleanup_prompt(
+        len(tile_labels), chromakey_color,
+        grid_cols=grid_cols,
+        grid_rows=grid_rows,
+    )
+    print("  Removing labels and guides...")
+    cleaned = await provider.generate_with_images(
+        prompt=cleanup_prompt,
+        images=[result.image],
+        aspect_ratio=aspect_ratio,
+        image_size=image_size,
+    )
+    cleaned.image.save(out_dir / "sheet_cleaned.png")
+
+    # Resize output to match canvas if Gemini changed dimensions
+    sheet = cleaned.image
+    if sheet.size != canvas.size:
+        sheet = sheet.resize(canvas.size, Image.NEAREST)
+
+    # Extract individual tiles from grid
+    tiles = extract_tiles(sheet, tile_labels, cols=grid_cols, slot_size=slot_size)
+
+    # Background removal + cleanup on each tile
+    from pixel_magic.background import remove_background
+    from pixel_magic.cleanup import cleanup_tile
+
+    for label, tile_img in tiles.items():
+        # Remove chromakey background
+        tile_img = remove_background(tile_img, chromakey_color=chromakey_color)
+        # Clean mask (no outline stripping)
+        tile_img = cleanup_tile(tile_img, chromakey_color=chromakey_color)
+        # Fit to standard bounding box
+        tile_img = fit_tile(tile_img, target_width=64, depth=args.depth)
+
+        safe_name = label.replace(" ", "_").replace("/", "_")
+        tile_img.save(out_dir / f"{safe_name}.png")
+        print(f"  {label}: {tile_img.width}x{tile_img.height}")
+
+    print(f"Saved {len(tiles)} tiles to {out_dir}")
+
+    # Optional pixel art resize
+    if args.sizes:
+        from pixel_magic.resize import parse_sizes, resize_sprite
+
+        sizes = parse_sizes(args.sizes)
+        for size in sizes:
+            size_dir = out_dir / f"{size}x{size}"
+            size_dir.mkdir(exist_ok=True)
+            for label in tile_labels:
+                safe_name = label.replace(" ", "_").replace("/", "_")
+                src = Image.open(out_dir / f"{safe_name}.png").convert("RGBA")
+                resized = resize_sprite(src, size, num_colors=args.num_colors)
+                resized.save(size_dir / f"{safe_name}.png")
+            print(f"  Resized to {size}x{size}")
+        print(f"Saved {len(sizes)} size variants")
+
+
 def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
@@ -312,6 +454,8 @@ def main() -> None:
         asyncio.run(_generate(args))
     elif args.command == "animate":
         asyncio.run(_animate(args))
+    elif args.command == "tile":
+        asyncio.run(_tile(args))
 
 
 if __name__ == "__main__":

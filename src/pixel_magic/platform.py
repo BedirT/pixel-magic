@@ -1,4 +1,4 @@
-"""Procedural isometric platform generation for animation frames."""
+"""Procedural isometric platform and tile outline generation."""
 
 from __future__ import annotations
 
@@ -89,6 +89,51 @@ def create_platform_grid(
             grid_img.paste(tile, (x, y), tile)
 
     return grid_img
+
+
+def create_tile_outline(width: int, depth: int = 0) -> Image.Image:
+    """Create a wireframe-only isometric diamond outline (RGBA, transparent bg).
+
+    Used as a canvas template for tile generation — Gemini fills the outline
+    with terrain texture. depth=0 draws only the top face diamond;
+    depth>0 includes side face outlines.
+    """
+    if width % 2 != 0:
+        width += 1
+
+    diamond_h = width // 2
+    total_h = diamond_h + depth
+
+    img = Image.new("RGBA", (width, total_h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+
+    cx = width // 2
+    cy = diamond_h // 2
+    bot = diamond_h - 1
+
+    if depth > 0:
+        silhouette = [
+            (cx, 0),
+            (width - 1, cy),
+            (width - 1, cy + depth),
+            (cx, bot + depth),
+            (0, cy + depth),
+            (0, cy),
+        ]
+        # Inner edge between top and sides
+        draw.line([(0, cy), (cx, bot)], fill=_OUTLINE, width=1)
+        draw.line([(cx, bot), (width - 1, cy)], fill=_OUTLINE, width=1)
+    else:
+        silhouette = [(cx, 0), (width - 1, cy), (cx, bot), (0, cy)]
+
+    for i in range(len(silhouette)):
+        draw.line(
+            [silhouette[i], silhouette[(i + 1) % len(silhouette)]],
+            fill=_OUTLINE,
+            width=1,
+        )
+
+    return img
 
 
 def composite_on_platform(

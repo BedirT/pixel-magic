@@ -13,6 +13,7 @@ AI-powered pixel art character sprite generation and animation CLI. Generates is
 
 - Generate: `pixel-magic generate --name <name> --description "<desc>" --directions 4|8 --tiles 1|4|9`
 - Animate: `pixel-magic animate --name <name> --animation walk|attack|cast --frames 6 --platform --tiles 1|4|9`
+- Tile: `pixel-magic tile --type grass --variants 4` or `pixel-magic tile --theme forest --depth 8`
 - Install deps: `uv sync`
 
 ## Workflow
@@ -30,7 +31,8 @@ src/pixel_magic/
     config.py       # Settings from .env
     prompts.py      # Prompt builders for generation + animation
     animate.py      # Canvas building, grid layout, frame extraction
-    platform.py     # Isometric platform tile generation
+    tile.py         # Terrain tile generation (canvas, extraction, fitting)
+    platform.py     # Isometric platform + tile outline generation
     background.py   # Chromakey removal (rembg + despill)
     extract.py      # Sprite extraction (connected-component)
     cleanup.py      # Mask cleanup (chromakey rejection, binary alpha)
