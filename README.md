@@ -50,14 +50,17 @@ output/knight/
   raw.png                    # Raw model output (1024x1024)
   sheet.png                  # Background-removed (Gemini only)
   views/
-    front_left.png           # Extracted sprites
+    front_left.png           # Cleaned canonical sprites (mask hardened, binary alpha)
     back_right.png
-    32x32/                   # True pixel art at 32x32
+    32x32/                   # True pixel art at 32x32 (with contour regularization)
       front_left.png
       back_right.png
     64x64/                   # True pixel art at 64x64
       front_left.png
       back_right.png
+  views_raw/
+    front_left.png           # Raw extracted sprites (before cleanup, for debugging)
+    back_right.png
 ```
 
 ## How Resizing Works

@@ -67,12 +67,20 @@ pixel-magic generate \
 
 ```
 output/<name>/
-├── raw.png      # Untouched model output (always)
-└── sheet.png    # Background-removed version (Gemini provider only)
+├── raw.png           # Untouched model output (always)
+├── sheet.png         # Background-removed version (Gemini provider only)
+├── views/            # Cleaned canonical sprites (binary alpha, mask hardened)
+│   ├── front_left.png
+│   └── back_right.png
+└── views_raw/        # Raw extracted sprites before cleanup (for debugging)
+    ├── front_left.png
+    └── back_right.png
 ```
 
-- **raw.png** — Exactly what the model returned, zero processing. OpenAI images have native transparency. Gemini images have a solid green (#00FF00) background.
-- **sheet.png** — Gemini only. Background removed via U2-Net segmentation (rembg) with green despill post-processing. Ready to use as a sprite sheet.
+- **raw.png** — Exactly what the model returned, zero processing. Gemini images have a solid green (#00FF00) background.
+- **sheet.png** — Background removed via U2-Net segmentation (rembg) with chromakey despill.
+- **views/** — Cleaned sprites with binary alpha (0 or 255 only). Chromakey-dominant fringe removed, small islands/holes cleaned. These are the canonical high-res sprites.
+- **views_raw/** — Raw extracted sprites before cleanup, preserved for debugging and comparison.
 
 ### `pixel-magic animate`
 

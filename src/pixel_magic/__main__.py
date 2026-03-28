@@ -126,14 +126,29 @@ async def _generate(args: argparse.Namespace) -> None:
 
     sprites = extract_sprites(sheet, expected_count=view_count)
     if sprites:
+        # Save raw extractions for debugging
+        views_raw_dir = out_dir / "views_raw"
+        views_raw_dir.mkdir(exist_ok=True)
+        for i, sprite in enumerate(sprites):
+            raw_label = view_labels[i] if i < len(view_labels) else f"view_{i}"
+            sprite.save(views_raw_dir / f"{raw_label}.png")
+
+        # Clean sprites (mask hardening + contamination removal)
+        from pixel_magic.cleanup import cleanup_sprite
+
         views_dir = out_dir / "views"
         views_dir.mkdir(exist_ok=True)
+        cleaned_sprites = []
         for i, sprite in enumerate(sprites):
             label = view_labels[i] if i < len(view_labels) else f"view_{i}"
-            sprite_path = views_dir / f"{label}.png"
-            sprite.save(sprite_path)
-            print(f"  {label}: {sprite.width}x{sprite.height}")
-        print(f"Extracted {len(sprites)} sprites to {views_dir}")
+            cleaned = cleanup_sprite(sprite, chromakey_color=chromakey_color)
+            cleaned.save(views_dir / f"{label}.png")
+            cleaned_sprites.append(cleaned)
+            print(f"  {label}: {cleaned.width}x{cleaned.height}")
+        print(f"Extracted {len(cleaned_sprites)} sprites to {views_dir}")
+
+        # Use cleaned sprites for resize
+        sprites = cleaned_sprites
 
         # Resize to pixel art sizes if requested
         if args.sizes:

@@ -392,13 +392,36 @@ OpenAI (gpt-image-1.5) was evaluated and removed. It offered native alpha transp
 
 ---
 
+## Post-Processing Pipeline (March 2026)
+
+After extraction, sprites go through cleanup and outline processing before resize. See `docs/research/background-removal.md` for detailed research on background removal approaches.
+
+### Background Removal: Flood Fill Chromakey
+
+Replaced rembg (U2-Net neural network) with flood-fill-from-edges chromakey removal. rembg produced soft alpha (98.7% of pixels semi-transparent) that destroyed pixel art quality. The flood fill approach uses channel-ratio green detection (`G > max(R,B) + 30`) with 4-connected BFS from image borders, producing binary alpha by construction. Saves ~92MB of dependencies (onnxruntime, scikit-image, pymatting).
+
+### Outline Strategy: Strip and Re-Add
+
+The AI's outlines are inconsistent (varying thickness, grey instead of black, sometimes missing). Rather than trying to reinforce them through downscaling, we:
+
+1. **Strip** the outermost dark boundary pixels (max_ch < 35, spread < 20) in the high-res sprite — single pass only, to avoid eating into dark body regions
+2. **Pixelate** the clean body via proper-pixel-art (grid detection works better without noisy dark edge pixels)
+3. **Re-add** a guaranteed uniform 1px black outline at the target size via morphological erosion
+
+This produces 100% black boundary coverage at both 64x64 and 128x128, compared to 69% at 64x64 with the old approach.
+
+**Future work:** Internal outlines (between arm and body, armor pieces) still survive pixelation naturally but have the same quality issues. The strip+re-add approach could be extended to detect and normalize internal dark linear features.
+
+---
+
 ## What Could Be Improved
 
-1. **Multi-pass generation** — Generate each view separately for better consistency, then composite
-2. **Style transfer from reference** — Use an existing sprite as a style reference for new characters
-3. **Automatic quality evaluation** — Detect and retry when views are inconsistent or malformed
-4. **Palette extraction + enforcement** — Extract palette from frame 1, enforce on subsequent generations
-5. **Adaptive char_ratio** — Auto-detect character proportions from the first successful generation to improve placement on subsequent runs
-6. **Direction arrows on platforms** — If position-based prompt descriptions prove unreliable for facing directions, draw small pixel-art arrows on platforms pointing in the intended facing direction. Visual cue without the text-based quality degradation. Not currently needed.
-7. **Resolution-aware font scaling** — The Pixelify Sans font (in `assets/fonts/`) is available for UI/overlay use. Tiny5 and Jacquarda Bastarda 9 are also available for different aesthetic needs. These should NOT be rendered on generation canvases (see Labels vs Quality) but can be used for animation frame numbers or post-processing overlays.
-8. **Safer extraction fallback when the model returns extra valid views** — If the prompt expects 2 views but Gemini returns 4 clearly separated poses, do not blindly merge until the count drops. Prefer reporting the mismatch, saving all candidate crops, or using layout-aware grouping before aggressive merging.
+1. **Internal outline normalization** — Detect dark linear features between distinct color regions, strip them, re-add clean 1px dark lines at color boundaries after pixelation
+2. **Multi-pass generation** — Generate each view separately for better consistency, then composite
+3. **Style transfer from reference** — Use an existing sprite as a style reference for new characters
+4. **Automatic quality evaluation** — Detect and retry when views are inconsistent or malformed
+5. **Palette extraction + enforcement** — Extract palette from frame 1, enforce on subsequent generations
+6. **Adaptive char_ratio** — Auto-detect character proportions from the first successful generation to improve placement on subsequent runs
+7. **Direction arrows on platforms** — If position-based prompt descriptions prove unreliable for facing directions, draw small pixel-art arrows on platforms pointing in the intended facing direction. Visual cue without the text-based quality degradation. Not currently needed.
+8. **Resolution-aware font scaling** — The Pixelify Sans font (in `assets/fonts/`) is available for UI/overlay use. Tiny5 and Jacquarda Bastarda 9 are also available for different aesthetic needs. These should NOT be rendered on generation canvases (see Labels vs Quality) but can be used for animation frame numbers or post-processing overlays.
+9. **Safer extraction fallback when the model returns extra valid views** — If the prompt expects 2 views but Gemini returns 4 clearly separated poses, do not blindly merge until the count drops. Prefer reporting the mismatch, saving all candidate crops, or using layout-aware grouping before aggressive merging.

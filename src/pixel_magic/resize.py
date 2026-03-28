@@ -9,8 +9,10 @@ the dominant color per cell, and produce genuine pixel art.
 
 from __future__ import annotations
 
+import numpy as np
 from PIL import Image
 from proper_pixel_art.pixelate import pixelate
+from scipy.ndimage import binary_erosion
 
 # Supported target sizes (square)
 VALID_SIZES = [16, 32, 48, 64, 96, 128, 256]
@@ -40,6 +42,9 @@ def resize_sprite(
 
     # Detect pixel grid and produce true pixel art
     pixelated = pixelate(sprite, num_colors=num_colors)
+
+    # Regularize contours on the small pixelated result
+    pixelated = _regularize_contours(pixelated)
 
     # Fit into target box preserving aspect ratio, nearest-neighbor
     w, h = pixelated.size
@@ -83,3 +88,34 @@ def parse_sizes(sizes_str: str) -> list[int]:
             sizes.append(s)
 
     return sorted(sizes)
+
+
+# ---------------------------------------------------------------------------
+# Outline enforcement — adds 1px black outline on pixelated sprites
+# ---------------------------------------------------------------------------
+
+
+def _regularize_contours(image: Image.Image) -> Image.Image:
+    """Add a clean 1px black outline around the pixelated sprite.
+
+    The AI's original outlines are stripped during cleanup (pre-downscale).
+    This adds a uniform 1px black outline at the target pixel art size.
+    """
+    arr = np.array(image.convert("RGBA"), dtype=np.uint8)
+    alpha = arr[:, :, 3]
+    opaque = alpha == 255
+
+    if not opaque.any():
+        return image
+
+    # Find the 1px outer boundary (4-connectivity)
+    struct = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]], dtype=bool)
+    eroded = binary_erosion(opaque, structure=struct)
+    boundary = opaque & ~eroded
+
+    # Paint all boundary pixels black
+    arr[boundary, 0] = 0
+    arr[boundary, 1] = 0
+    arr[boundary, 2] = 0
+
+    return Image.fromarray(arr, "RGBA")

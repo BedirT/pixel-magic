@@ -91,6 +91,20 @@ pixel-magic generates multi-view isometric pixel art character sprites using Gem
                     │  5. Adaptive merge      │
                     │  6. Sort left-to-right  │
                     │                         │
+                    │  output/<name>/views_raw/│
+                    │    <direction>.png      │
+                    └──────────┬─────────────┘
+                               │
+                    ┌──────────▼─────────────┐
+                    │   Mask Cleanup          │
+                    │                         │
+                    │  1. Chromakey-dominance │
+                    │     rejection           │
+                    │  2. Island/hole cleanup │
+                    │  3. Binary alpha        │
+                    │     (0 or 255 only)     │
+                    │  4. Trim to bounds      │
+                    │                         │
                     │  output/<name>/views/   │
                     │    <direction>.png      │
                     └──────────┬─────────────┘
@@ -110,9 +124,11 @@ pixel-magic generates multi-view isometric pixel art character sprites using Gem
            │     + Hough)     │    │
            │  2. Sample color │    │
            │     per cell     │    │
-           │  3. Quantize     │    │
+           │  3. Contour      │    │
+           │     regularize   │    │
+           │  4. Quantize     │    │
            │     palette      │    │
-           │  4. Resize with  │    │
+           │  5. Resize with  │    │
            │     NEAREST      │    │
            │                  │    │
            │  views/<size>/   │    │
@@ -190,9 +206,23 @@ The composite sheet is split into individual view PNGs using connected-component
 
 **Step E: Adaptive Merge** — if the expected view count is known (2 for 4-dir, 5 for 8-dir) and too many blobs remain, the merge gap is progressively increased (8px → 16px → 24px → ...) until the count matches.
 
-**Step F: Sort & Crop** — merged blobs are sorted left-to-right (matching the prompt's view order) and cropped with 2px padding. Each sprite is saved with its direction label (`front_left.png`, `back_right.png`, etc.).
+**Step F: Sort & Crop** — merged blobs are sorted left-to-right (matching the prompt's view order) and cropped with 2px padding. Each raw sprite is saved to `output/<name>/views_raw/`.
 
-### 8. Pixel Art Resize (optional)
+### 8. Mask Cleanup
+
+Each extracted sprite is cleaned to produce a binary-alpha canonical sprite saved to `output/<name>/views/`.
+
+**Step A: Candidate Mask** — pixels with alpha >= 32 are candidates for the foreground.
+
+**Step B: Chromakey Rejection** — pixels where the chromakey channel exceeds max of the other two channels by 30+ are rejected. Dark contour pixels (max channel < 60) are always preserved.
+
+**Step C: Morphological Cleanup** — 8-connected island removal (< 3px) and hole filling (enclosed holes <= 2px).
+
+**Step D: Hard Alpha** — alpha is set to 0 or 255 (no semi-transparency). RGB is zeroed on transparent pixels.
+
+**Step E: Trim** — crop to the cleaned mask bounding box with 2px padding. If cleanup removes all pixels, the original sprite is returned unchanged.
+
+### 9. Pixel Art Resize (optional)
 
 When `--sizes` is provided, each extracted sprite is converted to true pixel art using [proper-pixel-art](https://github.com/KennethJAllen/proper-pixel-art):
 
@@ -200,9 +230,14 @@ When `--sizes` is provided, each extracted sprite is converted to true pixel art
 
 **Step B: Color Sampling** — for each cell in the detected grid, the dominant color is selected using offset binning (a dual-grid approach that avoids quantization boundary artifacts).
 
-**Step C: Palette Quantization (optional)** — if `--num-colors` is specified, PIL's MAXCOVERAGE quantization reduces the palette with dithering disabled for clean pixel art output.
+**Step C: Contour Regularization** — the pixelated result (~20-40px) gets contour cleanup:
+- Outer boundary pixels are darkened to pure black (4-connectivity erosion to find the boundary)
+- 1px exterior contour notches are bridged when opposing dark boundary neighbors exist (with same-component safeguard)
+- Interior seam breaks (1-2px gaps between dark seam segments) are bridged
 
-**Step D: Target Resize** — the pixelated result is resized to the target dimensions (16-256px) using nearest-neighbor interpolation to preserve hard pixel edges, then centered on a transparent canvas.
+**Step D: Palette Quantization (optional)** — if `--num-colors` is specified, PIL's MAXCOVERAGE quantization reduces the palette with dithering disabled for clean pixel art output.
+
+**Step E: Target Resize** — the pixelated result is resized to the target dimensions (16-256px) using nearest-neighbor interpolation to preserve hard pixel edges, then centered on a transparent canvas.
 
 Resized sprites are saved to `output/<name>/views/<size>x<size>/`.
 
@@ -215,11 +250,14 @@ output/
     ├── raw.png           # Untouched model output (always saved)
     ├── sheet_cleaned.png # After platform removal (platform mode)
     ├── sheet.png         # Background-removed version
-    └── views/            # Individual extracted sprites
+    ├── views/            # Cleaned canonical sprites (binary alpha)
+    │   ├── front_left.png
+    │   ├── back_right.png
+    │   ├── 32x32/        # True pixel art at 32x32 (if --sizes used)
+    │   │   ├── front_left.png
+    │   │   └── back_right.png
+    │   └── ...
+    └── views_raw/        # Raw extracted sprites (before cleanup)
         ├── front_left.png
-        ├── back_right.png
-        ├── 32x32/        # True pixel art at 32x32 (if --sizes used)
-        │   ├── front_left.png
-        │   └── back_right.png
-        └── ...
+        └── back_right.png
 ```
