@@ -77,7 +77,7 @@ def build_character_sheet_prompt(
         "style": "isometric",
         "purpose": "character_sprite_reference_sheet",
         "background": {
-            "type": "transparent",
+            "type": "chromakey",
             "rule": _background_rule(chromakey_color),
             "instruction": _background_instruction(chromakey_color),
         },
@@ -261,71 +261,110 @@ def build_generation_canvas_prompt(
     character_description: str,
     direction_mode: int = 4,
     style: str = "16-bit SNES RPG style",
+    resolution: str = "64x64",
     max_colors: int = 16,
     chromakey_color: str = "green",
     tiles: int = 1,
     grid_cols: int | None = None,
     grid_rows: int | None = None,
 ) -> str:
-    """Build a prompt for canvas-based character generation.
+    """Build a JSON-structured prompt for canvas-based character generation.
 
     The caller creates a canvas with labeled platforms in a grid.
     The model draws the same character on each platform facing the labeled direction.
+    Uses the same structured JSON format as the text-only prompt for consistent
+    pixel art quality.
     """
     hex_color = _CHROMAKEY_HEX.get(chromakey_color, "#00FF00")
     views = _VIEWS_4DIR if direction_mode == 4 else _VIEWS_8DIR
 
     if tiles == 1:
-        floor_desc = "an isometric stone platform"
+        floor_desc = "a single isometric stone platform tile"
     elif tiles == 4:
-        floor_desc = "a 2x2 isometric stone tile floor"
+        floor_desc = "a 2x2 isometric stone tile floor (4 tiles in a diamond)"
     else:
-        floor_desc = "a 3x3 isometric stone tile floor"
+        floor_desc = "a 3x3 isometric stone tile floor (9 tiles in a diamond)"
 
-    view_list = "\n".join(
-        f"  - Platform labeled \"{v['facing'].split('(')[0].strip()}\": "
-        f"draw the character {v['description'].lower()}"
-        for v in views
-    )
+    if tiles > 1:
+        size_hint = "large enough to fill most of the platform"
+    else:
+        size_hint = "tall — about 2-3x the height of the platform"
 
     layout_desc = ""
     if grid_cols and grid_rows:
-        layout_desc = f" arranged in a {grid_cols}x{grid_rows} grid"
+        layout_desc = f" in a {grid_cols}x{grid_rows} grid"
 
-    if tiles > 1:
-        centering_rule = "- The character must be CENTERED on each tile grid — standing in the middle, not at the edge"
-        size_hint = "The character should be large enough to fill most of the platform"
-    else:
-        centering_rule = "- The character must be centered on each platform"
-        size_hint = "The character should be tall — about 2-3x the height of the platform"
+    # Build position descriptions based on grid layout
+    _POSITION_NAMES_4DIR = ["left platform", "right platform"]
+    _POSITION_NAMES_8DIR = [
+        "top-left platform", "top-center platform", "top-right platform",
+        "bottom-left platform", "bottom-right platform",
+    ]
+    pos_names = _POSITION_NAMES_4DIR if direction_mode == 4 else _POSITION_NAMES_8DIR
 
-    return f"""\
-The reference image shows the layout: {len(views)} isometric stone platforms{layout_desc} on {chromakey_color} ({hex_color}) background, each labeled with a facing direction.
+    prompt: dict[str, Any] = {
+        "image_type": "pixel_art",
+        "style": "isometric",
+        "purpose": "character_sprite_reference_sheet",
+        "reference_image": {
+            "description": (
+                f"The attached image shows the exact layout to follow: "
+                f"{len(views)} isometric stone platforms{layout_desc} "
+                f"on {chromakey_color} ({hex_color}) background"
+            ),
+            "usage": "Match platform positions and spacing exactly. "
+                     "Draw one character per platform facing the direction "
+                     "specified below for each position.",
+        },
+        "background": {
+            "type": "chromakey",
+            "rule": _background_rule(chromakey_color),
+            "instruction": _background_instruction(chromakey_color),
+        },
+        "views": [
+            {
+                "platform_position": pos_names[i],
+                "facing": v["facing"],
+                "description": v["description"],
+            }
+            for i, v in enumerate(views)
+        ],
+        "character": {
+            "description": character_description,
+            "pose": "standing idle",
+            "consistency_rule": (
+                "Every view must depict the EXACT same character — identical "
+                "proportions, palette, clothing, accessories, and level of "
+                "detail. Only the facing direction changes between views."
+            ),
+        },
+        "placement": {
+            "floor": floor_desc,
+            "feet": "character's feet must touch the platform surface — firmly planted, not floating",
+            "centering": "character centered on each platform",
+            "size": size_hint,
+        },
+        "art_details": {
+            "pixel_density": "medium",
+            "shading": "simple 2-3 tone stepped shading per color area",
+            "outline": (
+                "Every element MUST have a 1-pixel black (#000000) outline — "
+                "the character, all accessories, weapons, effects, and every "
+                "separate visual part must be fully enclosed by a black pixel "
+                "border with no gaps"
+            ),
+            "anti_aliasing": "none — every edge is a hard pixel step",
+            "perspective": "isometric 3/4 top-down (~30 degrees from above)",
+            "target_resolution_per_view": resolution,
+            "max_colors": max_colors,
+            "style_reference": (
+                "Classic SNES/Genesis pixel art: Final Fantasy Tactics, "
+                "Tactics Ogre, Chrono Trigger overworld sprites"
+            ),
+        },
+    }
 
-Generate a pixel art character sprite sheet matching this layout. For each labeled platform position, draw the SAME character in a standing idle pose facing that direction:
-{view_list}
-
-The character is: {character_description}
-
-PLACEMENT:
-- Each character must be standing ON an isometric stone platform identical to those in the reference
-- {centering_rule}
-- The character's feet must touch the platform surface — firmly planted, not floating
-- {size_hint}
-- Match the platform positions and spacing from the reference image
-
-CHARACTER CONSISTENCY:
-- Every view must show the EXACT same character — identical proportions, colors, outfit, accessories
-- Only the facing direction changes between views
-
-STYLE:
-- Style: {style}
-- Isometric 3/4 top-down perspective (~30 degrees from above)
-- Pixel art: hard pixel edges, no anti-aliasing, no smoothing
-- 1-pixel black outline on ALL character elements
-- Maximum {max_colors} colors in the character palette
-- Simple 2-3 tone stepped shading per color area
-- {chromakey_color} ({hex_color}) background everywhere around characters and platforms"""
+    return json.dumps(prompt, indent=2)
 
 
 def build_generation_cleanup_prompt(

@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 from pixel_magic.prompts import build_canvas_prompt
 from pixel_magic.providers.gemini import GeminiProvider
@@ -16,94 +16,45 @@ _GEMINI_RATIOS: list[tuple[int, int]] = [
     (1, 1), (5, 4), (4, 3), (3, 2), (16, 9),
 ]
 
-# 3x5 pixel bitmaps for digits 0-9 (each row is a 3-bit mask, MSB = left)
-_DIGIT_BITMAPS: dict[int, list[int]] = {
-    0: [0b111, 0b101, 0b101, 0b101, 0b111],
-    1: [0b010, 0b110, 0b010, 0b010, 0b111],
-    2: [0b111, 0b001, 0b111, 0b100, 0b111],
-    3: [0b111, 0b001, 0b111, 0b001, 0b111],
-    4: [0b101, 0b101, 0b111, 0b001, 0b001],
-    5: [0b111, 0b100, 0b111, 0b001, 0b111],
-    6: [0b111, 0b100, 0b111, 0b101, 0b111],
-    7: [0b111, 0b001, 0b001, 0b010, 0b010],
-    8: [0b111, 0b101, 0b111, 0b101, 0b111],
-    9: [0b111, 0b101, 0b111, 0b001, 0b111],
-}
-
-# 3x5 pixel bitmaps for uppercase letters (same format as digits)
-_LETTER_BITMAPS: dict[str, list[int]] = {
-    "A": [0b010, 0b101, 0b111, 0b101, 0b101],
-    "B": [0b110, 0b101, 0b110, 0b101, 0b110],
-    "C": [0b011, 0b100, 0b100, 0b100, 0b011],
-    "E": [0b111, 0b100, 0b110, 0b100, 0b111],
-    "F": [0b111, 0b100, 0b110, 0b100, 0b100],
-    "G": [0b011, 0b100, 0b101, 0b101, 0b011],
-    "H": [0b101, 0b101, 0b111, 0b101, 0b101],
-    "I": [0b111, 0b010, 0b010, 0b010, 0b111],
-    "K": [0b101, 0b110, 0b100, 0b110, 0b101],
-    "L": [0b100, 0b100, 0b100, 0b100, 0b111],
-    "N": [0b101, 0b111, 0b111, 0b101, 0b101],
-    "O": [0b010, 0b101, 0b101, 0b101, 0b010],
-    "R": [0b110, 0b101, 0b110, 0b101, 0b101],
-    "S": [0b011, 0b100, 0b010, 0b001, 0b110],
-    "T": [0b111, 0b010, 0b010, 0b010, 0b010],
-    "W": [0b101, 0b101, 0b101, 0b111, 0b101],
-    " ": [0b000, 0b000, 0b000, 0b000, 0b000],
-    "-": [0b000, 0b000, 0b111, 0b000, 0b000],
-}
+_FONT_PATH = Path(__file__).resolve().parent.parent.parent / "assets" / "fonts" / "PixelifySans-Regular.ttf"
 
 
-def _draw_pixel_text(
+def _draw_label(
     canvas: Image.Image,
     text: str,
-    slot_x: int,
-    slot_y: int,
-    slot_width: int,
+    center_x: int,
+    y: int,
+    cell_w: int,
 ) -> None:
-    """Draw pixel-art text in the top-left corner of a slot."""
-    scale = max(2, slot_width // 60)
-    margin = scale * 2
-    gap = scale  # gap between characters
+    """Draw a direction label centered at (center_x, y) using Pixelify Sans.
 
-    x0 = slot_x + margin
-    y0 = slot_y + margin
+    White text with black outline for readability on chromakey background.
+    Font size scales with cell width. Alpha is thresholded to avoid
+    anti-aliased blending with the chromakey background.
+    """
+    font_size = max(18, cell_w // 18)
+    font = ImageFont.truetype(str(_FONT_PATH), size=font_size)
+    stroke = max(2, font_size // 12)
 
-    for char in text.upper():
-        if char.isdigit():
-            bitmap = _DIGIT_BITMAPS.get(int(char))
-        else:
-            bitmap = _LETTER_BITMAPS.get(char)
-        if bitmap is None:
-            x0 += 2 * scale  # skip unknown chars
-            continue
+    # Render text onto a temp image, then threshold alpha to kill anti-aliasing
+    bbox = ImageDraw.Draw(canvas).textbbox((0, 0), text, font=font, stroke_width=stroke)
+    # bbox origin can be negative (ascenders) — offset drawing to keep everything visible
+    ox, oy = -bbox[0] + stroke, -bbox[1] + stroke
+    tw, th = bbox[2] + ox + stroke, bbox[3] + oy + stroke
+    tmp = Image.new("RGBA", (tw, th), (0, 0, 0, 0))
+    ImageDraw.Draw(tmp).text(
+        (ox, oy), text, font=font,
+        fill=(255, 255, 255, 255),
+        stroke_width=stroke,
+        stroke_fill=(0, 0, 0, 255),
+    )
+    # Snap alpha to 0 or 255 — no blending with chromakey background
+    r, g, b, a = tmp.split()
+    a = a.point(lambda v: 255 if v > 128 else 0)
+    tmp = Image.merge("RGBA", (r, g, b, a))
 
-        for row_idx, row_bits in enumerate(bitmap):
-            for col_idx in range(3):
-                if row_bits & (1 << (2 - col_idx)):
-                    px = x0 + col_idx * scale
-                    py = y0 + row_idx * scale
-                    # Black outline (1px border around each block)
-                    for dx in range(-1, scale + 1):
-                        for dy in range(-1, scale + 1):
-                            cx, cy = px + dx, py + dy
-                            if 0 <= cx < canvas.width and 0 <= cy < canvas.height:
-                                canvas.putpixel((cx, cy), (0, 0, 0, 255))
-                    # White fill
-                    for dx in range(scale):
-                        for dy in range(scale):
-                            canvas.putpixel((px + dx, py + dy), (255, 255, 255, 255))
-        x0 += 3 * scale + gap
-
-
-def _draw_frame_number(
-    canvas: Image.Image,
-    number: int,
-    slot_x: int,
-    slot_y: int,
-    slot_width: int,
-) -> None:
-    """Draw a pixel-art frame number in the top-left corner of a slot."""
-    _draw_pixel_text(canvas, str(number), slot_x, slot_y, slot_width)
+    x = center_x - (tw // 2)
+    canvas.paste(tmp, (x, y), tmp)
 
 
 def _grid_layout(n_frames: int, slot_w: int, slot_h: int) -> tuple[int, int]:
@@ -215,8 +166,8 @@ def build_canvas(
         if slot_bg is not None:
             canvas.paste(slot_bg, (x, y), slot_bg if slot_bg.mode == "RGBA" else None)
 
-        # Number at top-left of cell (not slot)
-        _draw_frame_number(canvas, idx + 1, cell_x, cell_y, cell_w)
+        # Frame number centered at top of cell
+        _draw_label(canvas, str(idx + 1), cell_x + cell_w // 2, cell_y + 4, cell_w)
 
     # Place reference in slot 1 (covers frame number underneath)
     canvas.paste(
@@ -314,11 +265,15 @@ def build_generation_canvas(
     chromakey_color: str = "green",
     platform_fill: float = 0.55,
     char_ratio: float = 1.2,
+    target_res: int = 64,
 ) -> tuple[Image.Image, int, tuple[int, int], str, str, bool]:
     """Build a canvas with labeled platforms for character generation.
 
     Top-down approach: start from a fixed Gemini output size, divide into
     cells, then fit platforms and character space inside each cell.
+
+    Platforms are drawn at a small native resolution (based on target_res)
+    and scaled up with NEAREST to look chunky and pixel-art-like.
 
     platform_fill controls how much of the cell width the platform occupies
     (0.55 = platform is 55% of cell width). char_ratio estimates the
@@ -344,20 +299,29 @@ def build_generation_canvas(
     cell_w = canvas_w // cols
     cell_h = canvas_h // rows
 
-    # Size platform to fill a fraction of the cell width
+    # Draw platform at native pixel-art resolution, then scale up with NEAREST
     grid_size = {1: 1, 4: 2, 9: 3}.get(tiles, 1)
+    native_tile_w = max(8, target_res * 3 // 8)
+    if native_tile_w % 2 != 0:
+        native_tile_w += 1
+    native_depth = max(2, tile_depth * native_tile_w // 64)
+    native_platform = create_platform_grid(native_tile_w, native_depth, grid_size=grid_size)
+
+    # Scale up to fill target fraction of cell width
     target_plat_w = int(cell_w * platform_fill)
-    tile_width = max(32, target_plat_w // grid_size)
-    if tile_width % 2 != 0:
-        tile_width += 1
-    platform = create_platform_grid(tile_width, tile_depth, grid_size=grid_size)
+    scale = max(1, round(target_plat_w / native_platform.width))
+    platform = native_platform.resize(
+        (native_platform.width * scale, native_platform.height * scale),
+        Image.NEAREST,
+    )
 
     # --- Vertical placement: center character+platform unit in cell ---
     # Estimate character height from platform width
     char_height = int(platform.width * char_ratio)
 
     # Character feet land at center of the diamond top face
-    diamond_h = grid_size * tile_width // 2
+    # After scaling, diamond_h is half the platform width (isometric geometry)
+    diamond_h = platform.width // 2
     feet_offset = diamond_h // 2  # y from top of platform image
 
     # Total composite: character body above feet + platform below feet
@@ -395,9 +359,10 @@ def build_generation_canvas(
         plat_y = cell_y + plat_y_in_cell
         canvas.paste(platform, (plat_x, plat_y), platform)
 
-        # Draw direction label
-        label_text = view_labels[idx].upper().replace("_", " ")
-        _draw_pixel_text(canvas, label_text, cell_x, cell_y, cell_w)
+        # # Draw direction label centered at top of cell
+        # label_text = view_labels[idx].replace("_", "-")
+        # label_margin = max(4, cell_h // 50)
+        # _draw_label(canvas, label_text, cell_x + cell_w // 2, cell_y + label_margin, cell_w)
 
     return canvas, cols, (cell_w, cell_h), aspect_ratio, image_size, center_bottom
 

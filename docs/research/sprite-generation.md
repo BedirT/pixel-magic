@@ -211,18 +211,18 @@ Platform-guided generation is now the **default** for `pixel-magic generate`. Te
 
 ### Pipeline
 
-1. **Build a canvas** with empty isometric platforms in a grid, each labeled with its facing direction (e.g. "FRONT LEFT", "BACK RIGHT")
-2. **Send canvas + prompt** to Gemini (multimodal) — the model sees the platforms and draws characters on them
-3. **Second pass** removes platforms and direction labels
+1. **Build a canvas** with empty isometric platforms in a grid on chromakey background (no text labels — see "Labels vs Quality" below)
+2. **Send canvas + structured JSON prompt** to Gemini (multimodal) — the prompt describes which platform position gets which facing direction
+3. **Second pass** removes platforms
 4. **rembg + despill** removes remaining chromakey background
 5. **Extract sprites** via connected-component analysis
 
 ### Why platforms work for generation
 
 - Establishes the isometric ground plane — model maintains consistent 3/4 top-down angle across all views
-- Direction labels are unambiguous — model knows exactly which way each view should face
 - Tile size communicates character footprint — a 2×2 platform tells the model this is a larger creature
 - Grid layout matches Gemini's supported aspect ratios — better output quality
+- Pixelated platform rendering reinforces the pixel art aesthetic (see "Platform rendering" below)
 
 ### Canvas sizing: top-down approach
 
@@ -293,22 +293,72 @@ Cell layout (conceptual):
 - Higher (1.5–2.0) for tall tactical RPG sprites — pushes platform lower
 - The model isn't bound by this estimate — it controls platform placement, not character size
 
+### Labels vs Quality — A Critical Finding
+
+**Problem:** When text labels (direction names like "front-left", "back-right") were rendered on the canvas, Gemini's output quality degraded significantly. The generated characters looked like mobile game illustrations rather than pixel art — smoother gradients, anti-aliased edges, blended green backgrounds. Removing labels restored clean pixel art quality.
+
+**Why this happens:** Gemini matches the visual style of the input image. Text on the canvas — even pixel-style fonts — signals "this is a UI/diagram" rather than "this is pixel art." The model shifts its output style accordingly. Without labels, the pixelated platforms alone set the visual tone, and the prompt's pixel art instructions fully control the output style.
+
+**The evolution:**
+1. **v1 — Bitmap pixel text:** Custom 3×5 pixel bitmaps for each character. Hard pixel edges but limited readability.
+2. **v2 — System font with anti-aliasing:** `ImageFont.load_default()` — readable but anti-aliased edges bled into the chromakey background and further degraded pixel art quality.
+3. **v3 — Pixelify Sans with alpha thresholding:** Google's pixel-art font rendered with alpha snapped to 0/255 (no blending). Better style fit, but still degraded output.
+4. **v4 — No labels (current):** Labels removed entirely. Facing directions communicated through position-based descriptions in the prompt ("left platform: front-left facing"). Best output quality.
+
+**Key insight:** For generation, Gemini doesn't need visual text labels to follow directions — structured prompt descriptions with grid positions work just as well. This is different from animation, where a reference frame already establishes the visual style (see note below).
+
+**Animation canvas labels are fine:** The animation pipeline uses frame numbers on the canvas, and these don't cause the same quality degradation. The likely reason: the animation canvas already contains a reference frame (a fully-rendered pixel art character), which dominates the style signal. The small frame numbers are noise against a strong pixel art example. Generation canvases have no reference frame — only platforms — so any text has outsized influence on the perceived style.
+
+**Future fallback:** If facing directions become unreliable without labels, small pixel-art arrows drawn on the platforms (pointing in the facing direction) could provide visual cues without the text-based style degradation. Not currently needed — position-based prompt descriptions work well.
+
 ### Platform rendering
 
-Platforms are drawn as unified isometric blocks with tile division grid lines — not by pasting individual tiles. This eliminates visible seams between tiles.
+Platforms are composited from individual tiles rendered at a small "native" pixel-art resolution, then scaled up with nearest-neighbor interpolation to create chunky, unmistakably pixel-art-looking platforms.
 
 **Rendering evolution:**
-1. **v1 — Tile pasting:** Created individual isometric tiles and pasted them in a diamond grid. This produced visible seam artifacts where tiles overlapped, and tile outlines doubled up at edges.
-2. **v2 — Unified block with grid lines:** Draws one large isometric block (top face, left face, right face as filled polygons), then overlays tile division lines on the top face only. Grid lines are drawn by linear interpolation along the diamond edges. Much cleaner rendering.
+1. **v1 — Tile pasting at canvas resolution:** Created individual isometric tiles at the target canvas size and pasted them in a diamond grid. The tiles were smooth polygons drawn at high resolution — they looked like clean 3D renders, not pixel art. This caused Gemini to generate smooth, non-pixel-art characters to match.
+2. **v2 — Unified block with grid lines:** Drew one large isometric block with grid division lines. Cleaner visually, but same smooth-render problem — Gemini matched the smooth style.
+3. **v3 — Native resolution + NEAREST upscale (current):** Draw tiles at a small native resolution based on `target_res` (e.g., 24px wide for 64×64 sprites), then scale up with `Image.NEAREST`. Every pixel becomes a visible block. This primes Gemini to generate chunky pixel art.
+
+**How native resolution scaling works:**
+- `native_tile_w = target_res × 3/8` (e.g., 64 → 24px, 128 → 48px, 256 → 96px)
+- Draw the platform at native resolution (tiny, hard pixels)
+- Scale factor = `round(target_platform_width / native_platform_width)`
+- `platform.resize((w × scale, h × scale), Image.NEAREST)` — pure nearest-neighbor, no smoothing
+- Lower `target_res` = chunkier pixels = stronger pixel art signal
 
 **Platform sizing:**
 - `platform_fill` (default 0.55) controls what fraction of the cell width the platform occupies
-- `tile_width` is back-solved: `tile_width = (cell_w × platform_fill) / grid_size`
-- This means platform width ≈ `cell_w × 0.55` regardless of grid_size — consistent visual weight
+- Platform width ≈ `cell_w × 0.55` regardless of grid_size — consistent visual weight
+
+### Prompt format for canvas generation
+
+**Critical finding:** The canvas prompt must use the same structured JSON format as the text-only prompt. An earlier version used free-form narrative text for the canvas prompt while the text-only prompt used JSON. The text-only prompt consistently produced better pixel art. Switching the canvas prompt to JSON brought quality closer to parity.
+
+Key JSON fields that affect quality:
+- `"target_resolution_per_view": "64x64"` — tells Gemini the intended pixel density, crucial for pixel art discipline
+- `"background.type": "chromakey"` (not "transparent") — avoids confusing the model about background handling
+- `"style_reference"` — concrete game references (Final Fantasy Tactics, etc.) ground the output style
+- `"platform_position"` per view — spatial descriptions ("left platform", "top-right platform") replace visual labels
 
 ### Text-only fallback (`--no-platform`)
 
 Disables the platform canvas pipeline entirely. Uses a JSON-structured prompt with view definitions, style rules, and layout instructions — no reference image sent. This gives the model more creative freedom but less perspective control. Useful when platforms interfere with the character design (e.g., flying characters, characters that don't stand on ground)
+
+### Verification Snapshot — March 27, 2026
+
+Several manual validation runs were used to check whether the current pipeline still behaves as described above.
+
+**Observed behavior:**
+- Platform-guided generation remained stable across small, medium, and oversized character footprints. The expected number of views were extracted in each validated platform case.
+- Text-only generation with `--directions 4` usually behaved correctly. In repeated validation, the common result was the intended 2-view output.
+- At least one text-only outlier returned extra visible poses even though the prompt requested only 2 isometric views.
+
+**What this means:**
+- The text-only 4-dir prompt itself is correct. It still requests **2** isometric views (`front-left` and `back-right`) and relies on mirroring for the other directions.
+- The extra-pose failure mode appears to be **model noncompliance / drift**, not a prompt-format bug.
+- The recovery path is still brittle when Gemini freelances. In the observed outlier, connected-component analysis found 4 valid sprite boxes, but the adaptive merge logic increased the merge gap from 8px to 16px in order to force the count back toward the expected 2. At 16px, all 4 poses merged into a single large crop. This is a pipeline weakness even if the underlying cause is occasional model drift.
+- Large multi-tile platform runs completed successfully, but the cleanup pass was noticeably slower than smaller runs.
 
 ---
 
@@ -317,16 +367,17 @@ Disables the platform canvas pipeline entirely. Uses a JSON-structured prompt wi
 | Decision | Choice | Why |
 |----------|--------|-----|
 | Provider | Gemini only | Cheaper, better pixel art, multimodal input required for canvas pipeline |
-| Default generation | Platform-guided canvas | Perspective grounding, direction labels, tile footprint communication |
+| Default generation | Platform-guided canvas | Perspective grounding, tile footprint communication |
 | Canvas sizing | Top-down (fixed Gemini output → divide → fit) | Predictable dimensions, no ratio-snapping artifacts |
 | Platform placement | Centered char+platform composite | Prevents head clipping and wasted space |
-| Prompt format | JSON (text-only generation), Narrative (platform generation + animation) | JSON for structure, narrative for creative freedom with visual context |
+| Platform rendering | Individual tiles at native res, NEAREST upscale | Chunky pixels prime Gemini for pixel art style |
+| Canvas labels | None — directions in prompt only | Text on canvas degrades pixel art quality (see Labels vs Quality) |
+| Prompt format | JSON for both text-only and canvas generation | Structured format produces better pixel art; narrative for animation only |
 | Background | Chromakey + rembg + despill | Neural segmentation > thresholding |
 | Extraction | Connected-component analysis | Handles inconsistent model placement |
 | Resizing | Grid detection + nearest-neighbor | Preserves true pixel grid |
 | View count | 2 views (4-dir), 5 views (8-dir) | Fewer views = better consistency, mirror the rest |
 | Color limit | 16 by default | Forces model into retro pixel art discipline |
-| Platform rendering | Unified block + grid lines | Cleaner than tile pasting, no seam artifacts |
 | Raw output | Always saved untouched | Debugging + comparison baseline |
 
 ---
@@ -348,3 +399,6 @@ OpenAI (gpt-image-1.5) was evaluated and removed. It offered native alpha transp
 3. **Automatic quality evaluation** — Detect and retry when views are inconsistent or malformed
 4. **Palette extraction + enforcement** — Extract palette from frame 1, enforce on subsequent generations
 5. **Adaptive char_ratio** — Auto-detect character proportions from the first successful generation to improve placement on subsequent runs
+6. **Direction arrows on platforms** — If position-based prompt descriptions prove unreliable for facing directions, draw small pixel-art arrows on platforms pointing in the intended facing direction. Visual cue without the text-based quality degradation. Not currently needed.
+7. **Resolution-aware font scaling** — The Pixelify Sans font (in `assets/fonts/`) is available for UI/overlay use. Tiny5 and Jacquarda Bastarda 9 are also available for different aesthetic needs. These should NOT be rendered on generation canvases (see Labels vs Quality) but can be used for animation frame numbers or post-processing overlays.
+8. **Safer extraction fallback when the model returns extra valid views** — If the prompt expects 2 views but Gemini returns 4 clearly separated poses, do not blindly merge until the count drops. Prefer reporting the mismatch, saving all candidate crops, or using layout-aware grouping before aggressive merging.

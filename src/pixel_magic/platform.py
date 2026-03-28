@@ -60,88 +60,35 @@ def create_platform_grid(
     tile_depth: int = 8,
     grid_size: int = 1,
 ) -> Image.Image:
-    """Draw a unified isometric platform with grid lines on top.
+    """Arrange tiles in an isometric diamond grid.
 
     grid_size=1: single tile
     grid_size=2: 2x2 diamond (4 tiles)
     grid_size=3: 3x3 diamond (9 tiles)
 
-    Draws as ONE block with tile division lines — no seams between tiles.
     Returns RGBA image with transparent background.
     """
     if grid_size == 1:
         return create_platform(tile_width, tile_depth)
 
-    if tile_width % 2 != 0:
-        tile_width += 1
+    tile = create_platform(tile_width, tile_depth)
+    tw, th = tile.size
+    diamond_h = tile_width // 2
 
-    # Full grid diamond dimensions
-    # Image is 1px wider/taller than grid_size*tile_width so the diamond
-    # corners land at exact tile_width multiples. This makes full_w - cx == cx
-    # and bot - cy == cy, so all grid divisions are exact integers (zero rounding error).
-    full_w = grid_size * tile_width
-    diamond_h = full_w // 2
-    total_h = diamond_h + 1 + tile_depth
+    # Isometric grid dimensions
+    grid_w = grid_size * tw
+    grid_h = grid_size * diamond_h + tile_depth
 
-    img = Image.new("RGBA", (full_w + 1, total_h), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
+    grid_img = Image.new("RGBA", (grid_w, grid_h), (0, 0, 0, 0))
 
-    cx = full_w // 2
-    cy = diamond_h // 2
-    bot = diamond_h
+    # Place tiles back-to-front for correct overlap
+    for row in range(grid_size):
+        for col in range(grid_size):
+            x = (col - row) * (tw // 2) + (grid_size - 1) * (tw // 2)
+            y = (col + row) * (diamond_h // 2)
+            grid_img.paste(tile, (x, y), tile)
 
-    # Draw unified block (same as single tile but scaled up)
-    top_face = [(cx, 0), (full_w, cy), (cx, bot), (0, cy)]
-    left_face = [(0, cy), (cx, bot), (cx, bot + tile_depth), (0, cy + tile_depth)]
-    right_face = [(full_w, cy), (cx, bot), (cx, bot + tile_depth), (full_w, cy + tile_depth)]
-
-    draw.polygon(left_face, fill=_LEFT_COLOR)
-    draw.polygon(right_face, fill=_RIGHT_COLOR)
-    draw.polygon(top_face, fill=_TOP_COLOR)
-
-    # Outer silhouette
-    silhouette = [
-        (cx, 0),
-        (full_w, cy),
-        (full_w, cy + tile_depth),
-        (cx, bot + tile_depth),
-        (0, cy + tile_depth),
-        (0, cy),
-    ]
-    for i in range(len(silhouette)):
-        draw.line(
-            [silhouette[i], silhouette[(i + 1) % len(silhouette)]],
-            fill=_OUTLINE,
-            width=1,
-        )
-
-    # Draw tile grid lines — top face + vertical lines down the side faces
-    # With the +1 image sizing, all divisions are exact: t*cx and t*cy are always integers
-    for i in range(1, grid_size):
-        t = i / grid_size
-        # Top face: lines parallel to left→bottom edge (NE-SW)
-        draw.line([
-            (int(cx + t * cx), int(t * cy)),
-            (int(t * cx), int(cy + t * cy)),
-        ], fill=_OUTLINE, width=1)
-        # Left side face: vertical line down from the left-bottom edge division
-        lx = int(t * cx)
-        ly = int(cy + t * cy)
-        draw.line([(lx, ly), (lx, ly + tile_depth)], fill=_OUTLINE, width=1)
-
-    for i in range(1, grid_size):
-        t = i / grid_size
-        # Top face: lines parallel to right→bottom edge (NW-SE)
-        draw.line([
-            (int(cx - t * cx), int(t * cy)),
-            (int(full_w - t * cx), int(cy + t * cy)),
-        ], fill=_OUTLINE, width=1)
-        # Right side face: vertical line down from the right-bottom edge division
-        rx = int(full_w - t * cx)
-        ry = int(cy + t * cy)
-        draw.line([(rx, ry), (rx, ry + tile_depth)], fill=_OUTLINE, width=1)
-
-    return img
+    return grid_img
 
 
 def composite_on_platform(
