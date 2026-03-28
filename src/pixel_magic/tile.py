@@ -6,13 +6,7 @@ import math
 
 from PIL import Image
 
-from pixel_magic.animate import (
-    _draw_label,
-    _grid_layout,
-    _pick_image_size,
-    _snap_gemini_ratio,
-    extract_frames,
-)
+from pixel_magic.animate import _draw_label, _grid_layout, _pick_image_size, _snap_gemini_ratio, extract_frames
 from pixel_magic.platform import create_tile_outline
 
 # Predefined theme → tile type mappings
@@ -66,8 +60,8 @@ def build_tile_canvas(
     if not tile_labels:
         raise ValueError("tile_labels must not be empty")
 
-    chromakey_rgb = {"green": (0, 255, 0), "blue": (0, 0, 255)}
-    fill = chromakey_rgb.get(chromakey_color, (0, 255, 0))
+    chromakey_rgb = {"green": (0, 255, 0), "blue": (0, 0, 255), "pink": (255, 0, 255)}
+    fill = chromakey_rgb.get(chromakey_color, (255, 0, 255))
 
     outline = create_tile_outline(tile_width, depth)
     ow, oh = outline.size
@@ -78,7 +72,7 @@ def build_tile_canvas(
     slot_h = oh + label_margin + 10  # label above + padding below
 
     n_tiles = len(tile_labels)
-    cols, rows = _grid_layout(n_tiles, slot_w, slot_h)
+    cols, rows = _tile_grid_layout(n_tiles, slot_w, slot_h)
 
     raw_w, raw_h = slot_w * cols, slot_h * rows
     aspect_ratio, canvas_w, canvas_h = _snap_gemini_ratio(raw_w, raw_h)
@@ -105,6 +99,13 @@ def build_tile_canvas(
         _draw_label(canvas, label, cell_x + cell_w // 2, cell_y + 4, cell_w)
 
     return canvas, cols, (cell_w, cell_h), aspect_ratio, image_size
+
+
+def _tile_grid_layout(n_tiles: int, slot_w: int, slot_h: int) -> tuple[int, int]:
+    """Prefer exact small layouts to avoid unlabeled empty cells."""
+    if n_tiles <= 3:
+        return n_tiles, 1
+    return _grid_layout(n_tiles, slot_w, slot_h)
 
 
 def extract_tiles(

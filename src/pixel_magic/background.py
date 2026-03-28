@@ -1,11 +1,11 @@
 """Background removal for Gemini-generated images using chromakey flood fill.
 
 Gemini outputs fully opaque images with a solid chromakey background
-(green #00FF00 or blue #0000FF). Due to JPEG compression and rendering,
+(green #00FF00, blue #0000FF, or pink #FF00FF). Due to JPEG compression and rendering,
 the actual background color is approximate (never exact #00FF00).
 
 This module removes the background using:
-1. Flood fill from image borders — identifies connected green/blue regions
+1. Flood fill from image borders — identifies connected chromakey regions
 2. Boundary despill — clamps the chromakey channel on the 1px sprite edge
 3. Binary alpha — every pixel is fully opaque or fully transparent
 """
@@ -26,7 +26,7 @@ def remove_background(
 
     Args:
         image: Fully opaque RGBA image from Gemini with chromakey background.
-        chromakey_color: "green" or "blue".
+        chromakey_color: "green", "blue", or "pink".
 
     Returns:
         RGBA image with binary alpha (0 or 255 only).
@@ -49,6 +49,8 @@ def _is_chromakey(r: np.ndarray, g: np.ndarray, b: np.ndarray,
     """Test whether pixels are chromakey-dominant."""
     if chromakey_color == "blue":
         return b > (np.maximum(r, g).astype(np.int16) + margin)
+    if chromakey_color == "pink":
+        return np.minimum(r, b).astype(np.int16) > (g.astype(np.int16) + margin)
     return g > (np.maximum(r, b).astype(np.int16) + margin)
 
 
@@ -116,6 +118,13 @@ def _despill_boundary(arr: np.ndarray, bg_mask: np.ndarray,
     if chromakey_color == "blue":
         max_rg = np.maximum(r, g)
         result[:, :, 2] = np.where(boundary, np.minimum(b, max_rg), b)
+    elif chromakey_color == "pink":
+        r16 = r.astype(np.int16)
+        g16 = g.astype(np.int16)
+        b16 = b.astype(np.int16)
+        excess = np.where(boundary, np.maximum(0, np.minimum(r16, b16) - g16), 0)
+        result[:, :, 0] = np.clip(r16 - excess, 0, 255).astype(np.uint8)
+        result[:, :, 2] = np.clip(b16 - excess, 0, 255).astype(np.uint8)
     else:
         max_rb = np.maximum(r, b)
         result[:, :, 1] = np.where(boundary, np.minimum(g, max_rb), g)

@@ -47,6 +47,21 @@ class TestFloodFillRemoval:
         assert arr[0, 0, 3] == 0
         assert arr[10, 10, 3] == 255
 
+    def test_pink_background_removed(self):
+        """Pink chromakey background becomes transparent."""
+        img = _make_chromakey_image(
+            20,
+            20,
+            (5, 5, 15, 15),
+            sprite_color=(20, 120, 220),
+            bg_color=(255, 0, 255),
+        )
+        result = remove_background(img, chromakey_color="pink")
+        arr = np.array(result)
+
+        assert arr[0, 0, 3] == 0
+        assert arr[10, 10, 3] == 255
+
     def test_binary_alpha_only(self):
         """Output has only alpha 0 or 255."""
         img = _make_chromakey_image(20, 20, (5, 5, 15, 15))

@@ -6,7 +6,7 @@ import json
 from typing import Any
 
 
-_CHROMAKEY_HEX = {"green": "#00FF00", "blue": "#0000FF"}
+_CHROMAKEY_HEX = {"green": "#00FF00", "blue": "#0000FF", "pink": "#FF00FF"}
 
 _VIEWS_4DIR: list[dict[str, str]] = [
     {
@@ -434,12 +434,14 @@ def build_tile_canvas_prompt(
         "purpose": "terrain_tileset",
         "reference_image": {
             "description": (
-                f"The attached image shows {len(tile_labels)} labeled isometric diamond outlines"
+                f"The attached image shows exactly {len(tile_labels)} labeled isometric diamond outlines"
                 f"{layout_desc} on {chromakey_color} ({hex_color}) background"
             ),
             "usage": (
                 "Each diamond outline shows exactly where to draw the terrain tile. "
-                "Fill each diamond with the terrain texture labeled above it."
+                "Fill each diamond with the terrain texture labeled above it. "
+                "Do not invent extra tiles. Any unlabeled or outline-free area must remain solid "
+                f"{chromakey_color} ({hex_color}) background."
             ),
         },
         "background": {

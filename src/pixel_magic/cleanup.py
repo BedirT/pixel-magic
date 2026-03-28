@@ -23,7 +23,7 @@ def cleanup_sprite(
 
     Args:
         image: RGBA sprite from extract_sprites().
-        chromakey_color: "green" or "blue" — which channel to reject.
+        chromakey_color: "green", "blue", or "pink" — which chromakey to reject.
 
     Returns:
         RGBA image with binary alpha, trimmed to cleaned bounds.
@@ -80,6 +80,8 @@ def _build_candidate_mask(
     # Reject chromakey-dominant pixels
     if chromakey_color == "blue":
         contaminated = b > (np.maximum(r, g).astype(np.int16) + margin)
+    elif chromakey_color == "pink":
+        contaminated = np.minimum(r, b).astype(np.int16) > (g.astype(np.int16) + margin)
     else:
         contaminated = g > (np.maximum(r, b).astype(np.int16) + margin)
 

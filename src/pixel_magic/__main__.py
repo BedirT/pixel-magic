@@ -23,10 +23,10 @@ def _resolve_tile_chromakey(
     args_chromakey: str | None,
     settings_chromakey: str,
 ) -> str:
-    """Tile generation defaults to blue so green terrain survives extraction."""
+    """Tile generation defaults to pink so green and blue terrain survive extraction."""
     if args_chromakey is not None:
         return args_chromakey
-    return "blue" if settings_chromakey == "green" else settings_chromakey
+    return "pink"
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -104,7 +104,7 @@ def _build_parser() -> argparse.ArgumentParser:
     tile.add_argument("--output-dir", default="output", help="Output directory (default: output)")
     tile.add_argument("--style", default="16-bit SNES RPG style", help="Art style")
     tile.add_argument("--max-colors", type=int, default=16, help="Max color count (default: 16)")
-    tile.add_argument("--chromakey", choices=["green", "blue"], default=None, help="Chromakey color")
+    tile.add_argument("--chromakey", choices=["green", "blue", "pink"], default=None, help="Chromakey color")
     tile.add_argument("--depth", type=int, default=4, help="Tile side depth in pixels (default: 4, 0=flat)")
     tile.add_argument(
         "--sizes", default="",

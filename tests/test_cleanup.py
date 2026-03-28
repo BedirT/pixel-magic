@@ -184,6 +184,24 @@ class TestPreservesLegitimateForegroudColor:
         has_blue = opaque & (b >= 180)
         assert has_blue.any(), "Blue foreground pixel was incorrectly removed"
 
+    def test_blue_and_green_survive_with_pink_chromakey(self):
+        """Blue and green tile colors survive when pink chromakey is used."""
+        arr = np.zeros((12, 12, 4), dtype=np.uint8)
+        arr[2:10, 2:10] = [80, 80, 80, 255]
+        arr[4, 4] = [10, 10, 220, 255]
+        arr[7, 7] = [20, 200, 20, 255]
+        image = Image.fromarray(arr, "RGBA")
+
+        result = cleanup_sprite(image, chromakey_color="pink")
+        result_arr = np.array(result)
+
+        opaque = result_arr[:, :, 3] == 255
+        r, g, b = result_arr[:, :, 0], result_arr[:, :, 1], result_arr[:, :, 2]
+        has_blue = opaque & (b >= 180)
+        has_green = opaque & (g >= 180)
+        assert has_blue.any(), "Blue foreground pixel was incorrectly removed"
+        assert has_green.any(), "Green foreground pixel was incorrectly removed"
+
 
 class TestStripsOuterOutline:
     def test_dark_boundary_stripped(self):
