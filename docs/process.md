@@ -2,7 +2,7 @@
 
 ## Overview
 
-pixel-magic generates multi-view isometric pixel art character sprites using Gemini image generation. The default pipeline builds a canvas with labeled isometric platforms, Gemini fills in characters, platforms are removed in a cleanup pass. An alternative text-only mode (`--no-platform`) uses JSON-structured prompts without visual references.
+pixel-magic generates multi-view isometric pixel art character sprites using Gemini image generation. The default pipeline builds a canvas with unlabeled isometric platforms, Gemini fills in characters, platforms are removed in a cleanup pass. An alternative text-only mode (`--no-platform`) uses JSON-structured prompts without visual references.
 
 ## Process Flow
 
@@ -35,10 +35,10 @@ pixel-magic generates multi-view isometric pixel art character sprites using Gem
               │  with views,  │  │     platforms per     │
               │  style rules, │  │     --tiles (1/4/9)   │
               │  chromakey    │  │  2. Arrange in grid   │
-              │  background   │  │     with direction    │
-              │               │  │     labels            │
-              │  generate()   │  │  3. Pad to Gemini     │
-              │               │  │     aspect ratio      │
+              │  background   │  │     with prompt-side  │
+              │               │  │     position binding  │
+              │  generate()   │  │  3. Fit exact Gemini  │
+              │               │  │     output geometry   │
               │               │  │                       │
               │               │  │  canvas_input.png     │
               │               │  └─────────┬────────────┘
@@ -47,7 +47,7 @@ pixel-magic generates multi-view isometric pixel art character sprites using Gem
               │               │  │  Gemini Pass 1:      │
               │               │  │  Fill Characters      │
               │               │  │                       │
-              │               │  │  canvas + narrative   │
+              │               │  │  canvas + JSON        │
               │               │  │  prompt → Gemini      │
               │               │  │  (multimodal)         │
               │               │  │                       │
@@ -70,12 +70,12 @@ pixel-magic generates multi-view isometric pixel art character sprites using Gem
                     ┌──────────▼─────────────┐
                     │   Background Removal    │
                     │                         │
-                    │  1. rembg (U2-Net       │
-                    │     segmentation model) │
+                    │  1. Border flood fill   │
+                    │     on chromakey        │
                     │                         │
-                    │  2. Color-aware despill  │
-                    │     (clamp chromakey     │
-                    │     channel on edge px)  │
+                    │  2. Boundary despill    │
+                    │     (clamp chromakey    │
+                    │     channel on edge px) │
                     │                         │
                     │  output/<name>/sheet.png │
                     └──────────┬─────────────┘
@@ -156,15 +156,15 @@ Settings are resolved in priority order:
 
 ### 3. Platform Canvas (default) or Text-Only Prompt
 
-**Platform mode (default):** Builds a canvas image with isometric platforms arranged in a grid. Each platform is labeled with its facing direction (pixel-art text in the top-left corner). Platforms are drawn as unified isometric blocks with tile division grid lines. The canvas is padded to match a Gemini-supported aspect ratio.
+**Platform mode (default):** Builds a canvas image with isometric platforms arranged in a grid. Character generation does not render direction text on the canvas because those labels degrade pixel art quality; direction binding lives in the JSON prompt instead. The canvas is sized directly to a Gemini-supported output shape rather than padded after the fact.
 
 **Text-only mode (`--no-platform`):** Builds a JSON-structured prompt with view definitions, art style rules, background instructions, and layout hints. No reference image is sent.
 
 ### 4. Image Generation
 
 **Platform mode** requires two Gemini API calls:
-1. **Pass 1:** Canvas image + narrative prompt → Gemini fills in characters on each platform
-2. **Pass 2:** Generated image + cleanup prompt → Gemini removes platforms and direction labels, replacing them with chromakey fill
+1. **Pass 1:** Canvas image + JSON prompt → Gemini fills in characters on each platform
+2. **Pass 2:** Generated image + cleanup prompt → Gemini removes platforms and guide artifacts, replacing them with chromakey fill
 
 **Text-only mode** uses a single Gemini API call with the JSON prompt.
 
@@ -178,17 +178,17 @@ The model's output is saved as-is to `output/<name>/raw.png` with zero processin
 
 Since Gemini cannot produce transparent backgrounds, a two-stage post-processing pipeline removes the chromakey background:
 
-**Stage A: U2-Net Segmentation (rembg)**
-- A pre-trained U2-Net neural network segments foreground (sprite) from background
-- Produces a clean alpha mask that handles complex shapes, fine details, and semi-transparent areas
-- Much more accurate than simple color-distance thresholding, which either eats into the sprite or misses fringe pixels
+**Stage A: Border-Seeded Flood Fill**
+- Detect chromakey-dominant pixels using channel-dominance checks
+- Flood fill inward from the image borders with 4-connectivity, which avoids diagonal leaks through 1px gaps
+- Produce a binary background mask directly, which keeps the alpha edge crisp for pixel art
 
-**Stage B: Color-Aware Despill**
-- rembg leaves residual color bleed on edge pixels where the model anti-aliased against the chromakey background
-- The despill pass identifies edge pixels: partially transparent pixels + fully opaque pixels within 3px of the alpha boundary
-- For green chromakey: clamps `G = min(G, max(R, B))` — removes green tint without affecting other colors
+**Stage B: Boundary Despill**
+- Sprite edge pixels can still absorb chromakey color from model anti-aliasing and compression
+- The despill pass targets opaque pixels directly adjacent to the removed background
+- For green chromakey: clamps `G = min(G, max(R, B))`
 - For blue chromakey: clamps `B = min(B, max(R, G))`
-- Use `--chromakey blue` for green-skinned characters to avoid despill eating into the sprite
+- For pink chromakey: reduces red and blue together so magenta contamination collapses back toward the sprite's real colors
 
 The cleaned result is saved to `output/<name>/sheet.png`.
 

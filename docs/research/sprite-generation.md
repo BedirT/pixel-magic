@@ -214,7 +214,7 @@ Platform-guided generation is now the **default** for `pixel-magic generate`. Te
 1. **Build a canvas** with empty isometric platforms in a grid on chromakey background (no text labels — see "Labels vs Quality" below)
 2. **Send canvas + structured JSON prompt** to Gemini (multimodal) — the prompt describes which platform position gets which facing direction
 3. **Second pass** removes platforms
-4. **rembg + despill** removes remaining chromakey background
+4. **Flood-fill chromakey removal + despill** removes remaining chromakey background
 5. **Extract sprites** via connected-component analysis
 
 ### Why platforms work for generation
@@ -373,7 +373,7 @@ Several manual validation runs were used to check whether the current pipeline s
 | Platform rendering | Individual tiles at native res, NEAREST upscale | Chunky pixels prime Gemini for pixel art style |
 | Canvas labels | None — directions in prompt only | Text on canvas degrades pixel art quality (see Labels vs Quality) |
 | Prompt format | JSON for both text-only and canvas generation | Structured format produces better pixel art; narrative for animation only |
-| Background | Chromakey + rembg + despill | Neural segmentation > thresholding |
+| Background | Chromakey + flood fill + despill | Binary alpha, fewer dependencies, preserves pixel edges |
 | Extraction | Connected-component analysis | Handles inconsistent model placement |
 | Resizing | Grid detection + nearest-neighbor | Preserves true pixel grid |
 | View count | 2 views (4-dir), 5 views (8-dir) | Fewer views = better consistency, mirror the rest |
@@ -425,3 +425,52 @@ This produces 100% black boundary coverage at both 64x64 and 128x128, compared t
 7. **Direction arrows on platforms** — If position-based prompt descriptions prove unreliable for facing directions, draw small pixel-art arrows on platforms pointing in the intended facing direction. Visual cue without the text-based quality degradation. Not currently needed.
 8. **Resolution-aware font scaling** — The Pixelify Sans font (in `assets/fonts/`) is available for UI/overlay use. Tiny5 and Jacquarda Bastarda 9 are also available for different aesthetic needs. These should NOT be rendered on generation canvases (see Labels vs Quality) but can be used for animation frame numbers or post-processing overlays.
 9. **Safer extraction fallback when the model returns extra valid views** — If the prompt expects 2 views but Gemini returns 4 clearly separated poses, do not blindly merge until the count drops. Prefer reporting the mismatch, saving all candidate crops, or using layout-aware grouping before aggressive merging.
+
+---
+
+## Tile Generation Notes — March 28, 2026
+
+The `pixel-magic tile` command uses the same broad canvas-first idea as the character pipeline, but the constraints are different enough that the lessons are not identical.
+
+### Why tile canvases keep text labels
+
+Character generation dropped canvas labels because the labels degraded pixel art quality and the prompt could still bind views by position (`left platform`, `right platform`, etc.). Tile generation is different:
+
+- Tile slots often differ only by material, not silhouette.
+- Custom sets (`mud`, `brick`, `poison swamp`) do not have a predefined spatial meaning.
+- Removing the label text from the input canvas caused more slot drift than it saved in quality.
+
+Current choice: **keep the text labels on the tile reference canvas** and strip them in the cleanup pass. This favors correct slot-to-material binding over a perfectly clean reference image.
+
+### Why tile chromakey defaults to pink
+
+The tile pipeline originally inherited the repo-wide chromakey defaults:
+
+- **Green** preserved water/ice but erased grass-heavy tiles during cleanup.
+- **Blue** preserved grass but erased water-heavy and ice-heavy tiles.
+
+Observed failures:
+- `grass` and `dense grass` were partially or fully eaten on green chromakey.
+- `ice`, `frozen water`, and `water puddle` were partially eaten on blue chromakey.
+
+Current choice: **tile defaults to vivid pink (`#FF00FF`)** because natural terrain almost never uses saturated magenta as a dominant surface color. Pink chromakey is now supported by flood-fill background removal, despill, and cleanup.
+
+### Custom sets and empty-cell hallucinations
+
+The first custom tile layout used a generic grid search. For a 3-tile custom set, that produced a `2x2` layout with one empty cell. Gemini often treated the unlabeled empty space as permission to invent extra tiles, which then bled into extraction and produced broken custom outputs.
+
+Current choice:
+- 3-tile custom sets use a **`3x1` layout**
+- the prompt explicitly says **generate exactly the labeled tiles**
+- any unlabeled or outline-free space must remain solid chromakey background
+
+This materially reduced hallucinated extra rows in manual validation.
+
+### Remaining weaknesses in the tile pipeline
+
+These are still real even after the pink/default and `3x1` custom fixes:
+
+1. **Material quality is still model-driven** — the pipeline now preserves more valid pixels, but it cannot force a good aesthetic result every run.
+2. **Labels remain a tradeoff** — text improves slot binding, but it still adds visual clutter. A future iteration may replace full material names on-canvas with small numeric IDs plus prompt-side mapping.
+3. **Cleanup is conservative** — it removes obvious guide/text artifacts, but faint remnants can still survive in some runs. `raw.png` and `sheet_cleaned.png` remain essential debugging artifacts.
+4. **Surface-specific prompt tuning is still open** — liquids, transparent ice, swampy tiles, and glossy materials likely need dedicated wording to improve consistency.

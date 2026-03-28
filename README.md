@@ -1,6 +1,6 @@
 # Pixel Magic
 
-AI-powered pixel art character sprite generation CLI. Generates isometric multi-view character sheets using OpenAI (gpt-image-1.5) or Google Gemini, with proper pixel art resizing powered by [proper-pixel-art](https://github.com/KennethJAllen/proper-pixel-art).
+AI-powered pixel art sprite and terrain tile generation CLI built around a Gemini canvas pipeline. It generates isometric character sheets, animation sheets, and terrain tilesets, then cleans and extracts usable PNG assets.
 
 ## Quick Start
 
@@ -9,81 +9,69 @@ git clone https://github.com/BedirT/pixel-magic.git
 cd pixel-magic
 uv sync
 cp .env.example .env
-# set OPENAI_API_KEY and/or GOOGLE_API_KEY
+# set GOOGLE_API_KEY in .env
 ```
 
-## Usage
+## Core Commands
+
+Generate a character sheet:
 
 ```bash
-# Generate a 4-direction character sheet
-pixel-magic generate --name knight --description "medieval knight with sword and shield"
-
-# 8-direction sheet with Gemini
-pixel-magic generate --name mage --description "fire mage" --directions 8 --provider gemini
-
-# Generate and resize to true pixel art
-pixel-magic generate --name knight --description "medieval knight" --sizes 32,64
-
-# Resize with color quantization (16-color palette)
-pixel-magic generate --name knight --description "medieval knight" --sizes all --num-colors 16
+pixel-magic generate \
+  --name knight \
+  --description "medieval knight with silver armor, blue cape, and longsword"
 ```
 
-### Options
+Generate an animation for an existing character:
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--name` | required | Character name (output folder) |
-| `--description` | required | Character description |
-| `--directions` | 4 | Number of views: 4 or 8 |
-| `--provider` | from .env | `openai` or `gemini` |
-| `--output-dir` | `output` | Output directory |
-| `--resolution` | `64x64` | Target resolution per view |
-| `--max-colors` | 16 | Max color count in prompt |
-| `--style` | `16-bit SNES RPG style` | Art style |
-| `--sizes` | | Resize to pixel art sizes (e.g. `32,64` or `all`) |
-| `--num-colors` | | Palette size for resized sprites |
-
-### Output Structure
-
-```
-output/knight/
-  raw.png                    # Raw model output (1024x1024)
-  sheet.png                  # Background-removed (Gemini only)
-  views/
-    front_left.png           # Cleaned canonical sprites (mask hardened, binary alpha)
-    back_right.png
-    32x32/                   # True pixel art at 32x32 (with contour regularization)
-      front_left.png
-      back_right.png
-    64x64/                   # True pixel art at 64x64
-      front_left.png
-      back_right.png
-  views_raw/
-    front_left.png           # Raw extracted sprites (before cleanup, for debugging)
-    back_right.png
+```bash
+pixel-magic animate \
+  --name knight \
+  --animation walk \
+  --frames 6 \
+  --platform
 ```
 
-## How Resizing Works
+Generate terrain tiles:
 
-AI-generated sprites look pixel-art-ish but aren't — they're high-res images with anti-aliasing and sub-pixel detail. The `--sizes` flag uses [proper-pixel-art](https://github.com/KennethJAllen/proper-pixel-art) to:
+```bash
+pixel-magic tile \
+  --theme forest \
+  --sizes 32,64
+```
 
-1. Detect the underlying pixel grid via Canny edge detection + Hough line transform
-2. Sample the dominant color per grid cell (not averaging — offset binning)
-3. Optionally quantize to a limited palette (with `--num-colors`)
-4. Resize to target dimensions with nearest-neighbor to preserve hard pixel edges
+## How It Works
+
+- `generate` builds an isometric platform canvas, sends it to Gemini, removes the guides, then extracts per-view sprites.
+- `animate` uses an existing character frame as reference and generates a horizontal sprite sheet.
+- `tile` builds labeled diamond canvases so each slot stays bound to the intended material, then strips those labels in a cleanup pass.
+- Optional resizing uses [proper-pixel-art](https://github.com/KennethJAllen/proper-pixel-art) to convert high-resolution AI output into true pixel art sizes.
+
+## Current Caveats
+
+- Character generation intentionally avoids text labels on the canvas because labels degrade pixel art quality there.
+- Tile generation intentionally keeps labels on the canvas because custom material sets drift too much without slot labels.
+- The tile pipeline defaults to vivid pink chromakey. Green backgrounds eat grass-like tiles and blue backgrounds eat water- and ice-like tiles.
+- Tile quality is still model-driven. Liquids, ice, swamp materials, and glossy surfaces may need retries.
 
 ## Configuration
 
-Set in `.env` with `PIXEL_MAGIC_` prefix:
+Settings are loaded from `.env` with the `PIXEL_MAGIC_` prefix where applicable:
 
-- `PIXEL_MAGIC_PROVIDER` — `openai` or `gemini` (default: `openai`)
-- `OPENAI_API_KEY` — OpenAI API key
-- `GOOGLE_API_KEY` — Google Gemini API key
-- `PIXEL_MAGIC_CHROMAKEY_COLOR` — `green` or `blue` for Gemini backgrounds
+- `GOOGLE_API_KEY`: Google AI API key
+- `PIXEL_MAGIC_GEMINI_IMAGE_MODEL`: Gemini image model name
+- `PIXEL_MAGIC_CHROMAKEY_COLOR`: default chromakey for character generation and animation (`green` or `blue`)
+- `PIXEL_MAGIC_OUTPUT_DIR`: default output directory
+- `PIXEL_MAGIC_MAX_COLORS`: default prompt color limit
 
-## Acknowledgments
+The `tile` command uses pink chromakey by default unless you override it with `--chromakey`.
 
-- [proper-pixel-art](https://github.com/KennethJAllen/proper-pixel-art) by Kenneth J. Allen — the grid detection and pixelation engine that powers our sprite resizing. Converts noisy AI pixel art into true-resolution pixel art using edge detection, Hough line transform, and intelligent color sampling.
+## Docs
+
+- CLI reference: [`docs/cli.md`](/Users/bedirt/Documents/Github/pixel-magic/docs/cli.md)
+- Process overview: [`docs/process.md`](/Users/bedirt/Documents/Github/pixel-magic/docs/process.md)
+- Generation research notes: [`docs/research/sprite-generation.md`](/Users/bedirt/Documents/Github/pixel-magic/docs/research/sprite-generation.md)
+- Background removal research: [`docs/research/background-removal.md`](/Users/bedirt/Documents/Github/pixel-magic/docs/research/background-removal.md)
 
 ## License
 
