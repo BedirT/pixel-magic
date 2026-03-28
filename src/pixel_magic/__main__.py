@@ -11,6 +11,24 @@ from pathlib import Path
 from PIL import Image
 
 
+def _positive_int(value: str) -> int:
+    """argparse type that rejects zero and negative integers."""
+    ivalue = int(value)
+    if ivalue < 1:
+        raise argparse.ArgumentTypeError("--variants must be >= 1")
+    return ivalue
+
+
+def _resolve_tile_chromakey(
+    args_chromakey: str | None,
+    settings_chromakey: str,
+) -> str:
+    """Tile generation defaults to blue so green terrain survives extraction."""
+    if args_chromakey is not None:
+        return args_chromakey
+    return "blue" if settings_chromakey == "green" else settings_chromakey
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pixel-magic",
@@ -81,7 +99,7 @@ def _build_parser() -> argparse.ArgumentParser:
     tile_mode = tile.add_mutually_exclusive_group(required=True)
     tile_mode.add_argument("--type", dest="tile_type", help="Single tile type with variants (e.g., grass, stone, water)")
     tile_mode.add_argument("--theme", help="Themed tile set (e.g., forest, dungeon, desert, winter, custom)")
-    tile.add_argument("--variants", type=int, default=4, help="Number of variants per tile type (--type mode only, default: 4)")
+    tile.add_argument("--variants", type=_positive_int, default=4, help="Number of variants per tile type (--type mode only, default: 4)")
     tile.add_argument("--types", default="", help="Custom tile types for --theme custom (comma-separated)")
     tile.add_argument("--output-dir", default="output", help="Output directory (default: output)")
     tile.add_argument("--style", default="16-bit SNES RPG style", help="Art style")
@@ -328,7 +346,7 @@ async def _tile(args: argparse.Namespace) -> None:
     )
 
     settings = Settings()
-    chromakey_color = args.chromakey or settings.chromakey_color
+    chromakey_color = _resolve_tile_chromakey(args.chromakey, settings.chromakey_color)
 
     # Resolve tile labels
     set_name, tile_labels = resolve_tile_labels(
@@ -455,7 +473,10 @@ def main() -> None:
     elif args.command == "animate":
         asyncio.run(_animate(args))
     elif args.command == "tile":
-        asyncio.run(_tile(args))
+        try:
+            asyncio.run(_tile(args))
+        except ValueError as exc:
+            parser.error(str(exc))
 
 
 if __name__ == "__main__":

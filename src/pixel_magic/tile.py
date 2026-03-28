@@ -35,6 +35,8 @@ def resolve_tile_labels(
     Returns (set_name, labels).
     """
     if tile_type:
+        if variants < 1:
+            raise ValueError("--variants must be >= 1")
         labels = [f"{tile_type} {i + 1}" for i in range(variants)]
         return tile_type, labels
 
@@ -61,6 +63,9 @@ def build_tile_canvas(
 
     Returns (canvas, cols, slot_size, aspect_ratio, image_size).
     """
+    if not tile_labels:
+        raise ValueError("tile_labels must not be empty")
+
     chromakey_rgb = {"green": (0, 255, 0), "blue": (0, 0, 255)}
     fill = chromakey_rgb.get(chromakey_color, (0, 255, 0))
 
