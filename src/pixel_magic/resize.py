@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import numpy as np
 from PIL import Image
-from proper_pixel_art.pixelate import pixelate
 from scipy.ndimage import binary_erosion
 
 # Supported target sizes (square)
@@ -41,6 +40,14 @@ def resize_sprite(
     sprite = sprite.convert("RGBA")
 
     # Detect pixel grid and produce true pixel art
+    try:
+        from proper_pixel_art.pixelate import pixelate
+    except ImportError as exc:
+        raise RuntimeError(
+            "proper-pixel-art requires OpenCV runtime libraries (libGL). "
+            "Install system OpenCV dependencies before calling resize_sprite."
+        ) from exc
+
     pixelated = pixelate(sprite, num_colors=num_colors)
 
     # Regularize contours on the small pixelated result
