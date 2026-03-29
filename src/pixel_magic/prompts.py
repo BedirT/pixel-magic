@@ -1,4 +1,4 @@
-"""Prompt builders for character sprite sheets and animation frames."""
+"""Prompt builders for character/object sprite sheets and animation frames."""
 
 from __future__ import annotations
 
@@ -222,6 +222,113 @@ RULES:
 - Style: {style}, isometric 3/4 top-down view
 - Pixel art: hard pixel edges, no anti-aliasing, no smoothing
 - 1-pixel black outline on all character elements
+- Same color palette across all frames"""
+
+
+# ---------------------------------------------------------------------------
+# Canvas-based object animation prompt
+# ---------------------------------------------------------------------------
+
+_OBJECT_ANIMATION_DESCRIPTIONS: dict[str, str] = {
+    "sway": "a gentle swaying animation — the object rocks side to side as if blown by wind. Subtle, rhythmic motion. The base stays planted.",
+    "flicker": "a flickering animation — the flame or light source pulses and shifts shape between frames. Organic, jittery movement.",
+    "burn": "a burning animation — flames dance and smoke wisps rise. The fire shape changes each frame while the base stays grounded.",
+    "pulse": "a pulsing/glowing animation — the object brightens and dims rhythmically. Subtle scale or luminosity shifts.",
+    "open": "an opening animation — the object's lid, door, or cover swings open revealing the interior.",
+    "bob": "a bobbing animation — the object gently floats up and down in place. Smooth, continuous vertical motion.",
+    "spin": "a rotating animation — the object turns in place, showing different facets each frame.",
+}
+
+
+def build_object_animation_prompt(
+    animation_type: str,
+    total_frames: int,
+    object_description: str = "",
+    style: str = "16-bit SNES RPG style",
+    chromakey_color: str = "pink",
+    platform: bool = False,
+    loop: bool = True,
+    tiles: int = 1,
+    grid_cols: int | None = None,
+    grid_rows: int | None = None,
+) -> str:
+    """Build a prompt for object animation sprite sheet generation.
+
+    Same canvas approach as character animation: slot 1 has the reference,
+    remaining slots filled with chromakey for Gemini to complete.
+    """
+    hex_color = _CHROMAKEY_HEX.get(chromakey_color, "#FF00FF")
+    anim_desc = _OBJECT_ANIMATION_DESCRIPTIONS.get(
+        animation_type,
+        _ANIMATION_DESCRIPTIONS.get(animation_type, f"a {animation_type} animation."),
+    )
+
+    if grid_cols and grid_rows:
+        layout_desc = f"{total_frames} numbered frame slots arranged in a {grid_cols}x{grid_rows} grid (read left-to-right, top-to-bottom)"
+    else:
+        layout_desc = f"{total_frames} frame slots in a horizontal row"
+
+    object_line = ""
+    if object_description:
+        object_line = f"\nThe object is {object_description}."
+
+    if loop:
+        middle_count = total_frames - 2
+        loop_desc = f"The FIRST and LAST slots both show the same object — this is a LOOPING animation. Fill in the {middle_count} middle slots (slots 2–{total_frames - 1}) with animation frames that smoothly transition from the first pose, through the full motion, and back to the same pose."
+        anchor_rule = f"- Do NOT modify the first or last slot — they are identical anchor frames for the loop\n- The animation must smoothly cycle: frame {total_frames} flows back into frame 1"
+    else:
+        loop_desc = f"The FIRST slot contains the starting state. Fill in the remaining {total_frames - 1} slots with animation frames."
+        anchor_rule = "- Do NOT modify the first slot — it is the reference frame, leave it exactly as-is"
+
+    if platform:
+        if tiles == 1:
+            floor_desc = "an isometric stone platform"
+        elif tiles == 4:
+            floor_desc = "a 2x2 isometric stone tile floor (4 tiles in a diamond)"
+        else:
+            floor_desc = "a 3x3 isometric stone tile floor (9 tiles in a diamond)"
+
+        if loop:
+            slot_desc = f"The FIRST and LAST slots show a pixel art object sitting on {floor_desc}. The {middle_count} middle slots each have the same floor but NO object."
+        else:
+            slot_desc = f"The FIRST slot shows a pixel art object sitting on {floor_desc}. The remaining {total_frames - 1} slots each have the same floor but NO object."
+
+        return f"""\
+This image is a sprite sheet with {layout_desc}, on a {chromakey_color} ({hex_color}) background. {slot_desc}
+
+{loop_desc} Show {anim_desc}
+{object_line}
+
+RULES:
+- Draw the SAME object on each platform — identical base shape, colors, proportions, pixel art style
+- Each filled slot must show a DIFFERENT state progressing through the animation
+{anchor_rule}
+- Each empty slot has a small white number in the top-left corner showing its frame position — use these numbers to maintain correct animation sequence order
+- Do NOT modify the stone platforms — draw the object sitting ON TOP of them
+- The object's base must rest on the platform surface in every frame
+- Maintain the isometric 3/4 top-down perspective — the platform establishes the ground plane
+- Style: {style}
+- Pixel art: hard pixel edges, no anti-aliasing, no smoothing
+- 1-pixel black outline on all object elements
+- Same color palette across all frames
+- {chromakey_color} ({hex_color}) background must remain around the object and platform"""
+
+    return f"""\
+This image is a sprite sheet with {layout_desc}. {loop_desc}
+{object_line}
+
+Show {anim_desc}
+
+RULES:
+- Draw the SAME object in each slot — identical base shape, colors, proportions, pixel art style
+- Each filled slot must show a DIFFERENT state progressing through the animation
+{anchor_rule}
+- Each empty slot has a small white number in the top-left corner showing its frame position — use these numbers to maintain correct animation sequence order
+- Only draw inside the {chromakey_color} areas
+- Keep the {chromakey_color} ({hex_color}) background within each frame slot
+- Style: {style}, isometric 3/4 top-down view
+- Pixel art: hard pixel edges, no anti-aliasing, no smoothing
+- 1-pixel black outline on all object elements
 - Same color palette across all frames"""
 
 

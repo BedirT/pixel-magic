@@ -129,6 +129,30 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Platform tile count: 1 (default), 4 (2x2 grid), 9 (3x3 grid). More tiles = more room for action poses.",
     )
 
+    anim_obj = sub.add_parser("animate-object", help="Generate animation frames for an existing object")
+    anim_obj.add_argument("--set", required=True, help="Object set name (e.g., forest, torch)")
+    anim_obj.add_argument("--name", required=True, help="Object name within the set (e.g., oak_tree_1)")
+    anim_obj.add_argument("--animation", default="sway", help="Animation type: sway, flicker, burn, pulse, open, bob, spin (default: sway)")
+    anim_obj.add_argument("--description", default="", help="Object description (helps model consistency)")
+    anim_obj.add_argument("--frames", type=int, default=5, help="Total frames in cycle (default: 5)")
+    anim_obj.add_argument("--loop", action="store_true", default=True, help="Looping animation (default)")
+    anim_obj.add_argument("--no-loop", dest="loop", action="store_false", help="One-shot animation (open, etc.)")
+    anim_obj.add_argument("--reference", default=None, help="Path to reference frame (overrides auto-detect)")
+    anim_obj.add_argument("--output-dir", default="output", help="Output directory (default: output)")
+    anim_obj.add_argument("--chromakey", choices=["green", "blue", "pink"], default=None, help="Chromakey color (default: pink)")
+    anim_obj.add_argument("--style", default="16-bit SNES RPG style", help="Art style")
+    anim_obj.add_argument("--platform", action="store_true", default=False, help="Add isometric platform for perspective")
+    anim_obj.add_argument("--no-platform", dest="platform", action="store_false", help="No platform (default)")
+    anim_obj.add_argument(
+        "--tiles", type=int, default=1, choices=[1, 4, 9],
+        help="Platform tile count: 1 (default), 4 (2x2 grid), 9 (3x3 grid).",
+    )
+    anim_obj.add_argument(
+        "--sizes", default="",
+        help='Resize frames to pixel art sizes (e.g. "32,64" or "all")',
+    )
+    anim_obj.add_argument("--num-colors", type=int, default=None, help="Palette size for resized frames")
+
     tile = sub.add_parser("tile", help="Generate isometric terrain tiles")
     tile_mode = tile.add_mutually_exclusive_group(required=True)
     tile_mode.add_argument("--type", dest="tile_type", help="Single tile type with variants (e.g., grass, stone, water)")
@@ -374,6 +398,85 @@ async def _animate(args: argparse.Namespace) -> None:
     print(f"Saved {len(cleaned_frames)} frames + sheet to {anim_dir}")
 
 
+async def _animate_object(args: argparse.Namespace) -> None:
+    from pixel_magic.animate import assemble_sprite_sheet, generate_animation
+    from pixel_magic.config import Settings
+    from pixel_magic.providers.gemini import GeminiProvider
+
+    settings = Settings()
+    chromakey_color = _resolve_chromakey_pink(args.chromakey)
+
+    # Find reference frame
+    if args.reference:
+        ref_path = Path(args.reference)
+    else:
+        safe_name = args.name.replace(" ", "_").replace("/", "_")
+        ref_path = Path(args.output_dir) / "objects" / args.set / f"{safe_name}.png"
+
+    if not ref_path.exists():
+        print(f"Error: reference frame not found at {ref_path}")
+        print("Run 'pixel-magic object' first, or use --reference to specify a path.")
+        sys.exit(1)
+
+    reference = Image.open(ref_path).convert("RGBA")
+    print(f"Reference: {ref_path} ({reference.width}x{reference.height})")
+
+    provider = GeminiProvider(
+        api_key=settings.google_api_key,
+        model=settings.gemini_image_model,
+    )
+
+    if args.tiles > 1:
+        args.platform = True
+
+    safe_name = args.name.replace(" ", "_").replace("/", "_")
+    anim_dir = Path(args.output_dir) / "objects" / args.set / "animations" / safe_name / args.animation
+    print(f"Generating {args.frames}-frame {args.animation} animation for {args.name}...")
+
+    raw_frames = await generate_animation(
+        provider=provider,
+        reference_frame=reference,
+        animation_type=args.animation,
+        total_frames=args.frames,
+        loop=args.loop,
+        character_description=args.description,
+        style=args.style,
+        chromakey_color=chromakey_color,
+        save_dir=anim_dir,
+        platform=args.platform,
+        tiles=args.tiles,
+        subject="object",
+    )
+
+    cleaned_frames = []
+    for i, frame in enumerate(raw_frames, 1):
+        cleaned = _clean_sprite(frame, chromakey_color)
+        cleaned.save(anim_dir / f"frame_{i:02d}.png")
+        cleaned_frames.append(cleaned)
+
+    sheet = assemble_sprite_sheet(cleaned_frames)
+    sheet.save(anim_dir / "sheet.png")
+    print(f"Saved {len(cleaned_frames)} frames + sheet to {anim_dir}")
+
+    # Resize frames to target pixel art sizes
+    if args.sizes:
+        from pixel_magic.resize import parse_sizes, resize_sprite
+
+        sizes = parse_sizes(args.sizes)
+        for size in sizes:
+            size_dir = anim_dir / f"{size}x{size}"
+            size_dir.mkdir(exist_ok=True)
+            resized_frames = []
+            for i, frame in enumerate(cleaned_frames, 1):
+                resized = resize_sprite(frame, size, num_colors=args.num_colors)
+                resized.save(size_dir / f"frame_{i:02d}.png")
+                resized_frames.append(resized)
+            resized_sheet = assemble_sprite_sheet(resized_frames)
+            resized_sheet.save(size_dir / "sheet.png")
+            print(f"  Resized to {size}x{size}")
+        print(f"Saved {len(sizes)} size variants")
+
+
 async def _tile(args: argparse.Namespace) -> None:
     from pixel_magic.config import Settings
     from pixel_magic.providers.gemini import GeminiProvider
@@ -593,6 +696,8 @@ def main() -> None:
         asyncio.run(_generate(args))
     elif args.command == "animate":
         asyncio.run(_animate(args))
+    elif args.command == "animate-object":
+        asyncio.run(_animate_object(args))
     elif args.command == "tile":
         try:
             asyncio.run(_tile(args))

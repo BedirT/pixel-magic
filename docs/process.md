@@ -2,7 +2,7 @@
 
 ## Overview
 
-pixel-magic generates isometric pixel art assets using Gemini image generation. All four commands (`generate`, `animate`, `tile`, `object`) share the same 2-pass canvas pipeline: build a template canvas with guides (platforms, wireframes, labels), Gemini fills in content, a cleanup pass removes guides. Post-processing is unified: all commands use the same `_clean_sprite()` pipeline (background removal → mask cleanup with outline strip → outline re-add).
+pixel-magic generates isometric pixel art assets using Gemini image generation. All five commands (`generate`, `animate`, `animate-object`, `tile`, `object`) share the same 2-pass canvas pipeline: build a template canvas with guides (platforms, wireframes, labels), Gemini fills in content, a cleanup pass removes guides. Post-processing is unified: all commands use the same `_clean_sprite()` pipeline (background removal → mask cleanup with outline strip → outline re-add).
 
 ## Process Flow
 

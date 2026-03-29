@@ -142,6 +142,98 @@ output/<name>/animations/<animation>/
 └── ...
 ```
 
+### `pixel-magic animate-object`
+
+Generate animation frames for an existing object sprite.
+
+```bash
+pixel-magic animate-object --set <set-name> --name <object-name> [options]
+```
+
+#### Required Arguments
+
+| Argument | Description |
+|---|---|
+| `--set <set-name>` | Object set name (e.g., `forest`, `torch`, `dungeon`). |
+| `--name <object-name>` | Object name within the set (e.g., `oak_tree_1`, `torch_1`). |
+
+#### Optional Arguments
+
+| Argument | Default | Description |
+|---|---|---|
+| `--animation <type>` | `sway` | Animation type: `sway`, `flicker`, `burn`, `pulse`, `open`, `bob`, `spin` |
+| `--description "<desc>"` | *(none)* | Object description (helps model consistency) |
+| `--frames <n>` | `5` | Total frames in the animation cycle |
+| `--loop` / `--no-loop` | `--loop` | Looping animation (first=last frame) or one-shot |
+| `--reference <path>` | *(auto)* | Custom reference frame path (overrides auto-detect from `output/objects/<set>/<name>.png`) |
+| `--platform` / `--no-platform` | `--no-platform` | Add isometric platform for perspective grounding |
+| `--tiles {1,4,9}` | `1` | Platform tile count. Implies `--platform`. |
+| `--output-dir <path>` | `output` | Root output directory |
+| `--chromakey {green,blue,pink}` | `pink` | Chromakey color. Defaults to pink to preserve green/blue object content. |
+| `--style "<style>"` | `16-bit SNES RPG style` | Art style |
+| `--sizes "<list>"` | *(none)* | Resize frames to pixel art sizes (e.g. `32,64` or `all`). |
+| `--num-colors <n>` | *(none)* | Palette size for resized frames. |
+
+#### Animation Types
+
+| Type | Description | Good for |
+|---|---|---|
+| `sway` | Gentle rocking side to side | Trees, bushes, banners, flags |
+| `flicker` | Flame/light pulses and shifts shape | Torches, candles, lanterns |
+| `burn` | Flames dance, smoke rises | Campfires, bonfires |
+| `pulse` | Brightens and dims rhythmically | Crystals, magic orbs, runes |
+| `open` | Lid/door/cover opens | Chests, gates, doors |
+| `bob` | Floats up and down | Magic items, floating objects |
+| `spin` | Rotates in place | Coins, gems, gears |
+
+#### Examples
+
+Swaying tree (looping):
+```bash
+pixel-magic animate-object --set forest --name oak_tree --animation sway --frames 5
+```
+
+Flickering torch:
+```bash
+pixel-magic animate-object --set dungeon --name torch --animation flicker --frames 6
+```
+
+Chest opening (one-shot):
+```bash
+pixel-magic animate-object --set dungeon --name chest --animation open --frames 5 --no-loop
+```
+
+With resize to game-ready sizes:
+```bash
+pixel-magic animate-object --set camp --name campfire --animation burn --frames 6 --sizes 32,64
+```
+
+With custom reference:
+```bash
+pixel-magic animate-object --set custom --name my_crystal --animation pulse --reference path/to/crystal.png
+```
+
+#### Output
+
+```
+output/objects/<set-name>/animations/<object-name>/<animation>/
+├── canvas_input.png    # Input canvas sent to Gemini
+├── sheet_raw.png       # Gemini raw output
+├── sheet_cleaned.png   # After platform removal (if --platform)
+├── sheet.png           # Final horizontal sprite sheet
+├── frame_01.png        # Individual cleaned frames
+├── frame_02.png
+├── ...
+├── 32x32/              # Optional resized outputs
+│   ├── frame_01.png
+│   ├── ...
+│   └── sheet.png
+└── 64x64/
+    ├── frame_01.png
+    ├── ...
+    └── sheet.png
+```
+
 ### `pixel-magic tile`
 
 Generate isometric terrain tilesets using a canvas-guided Gemini pipeline.
