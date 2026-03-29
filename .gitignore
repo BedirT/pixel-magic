@@ -22,6 +22,7 @@ venv/
 
 # Output
 output/
+logs/
 
 # OS
 .DS_Store
