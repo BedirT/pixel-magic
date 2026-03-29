@@ -39,6 +39,31 @@ def _clean_sprite(image: Image.Image, chromakey_color: str) -> Image.Image:
     return add_outline(image)
 
 
+def _clean_tile(image: Image.Image, chromakey_color: str) -> Image.Image:
+    """Post-processing for tiles: remove background, clean mask (no outline strip)."""
+    from pixel_magic.background import remove_background
+    from pixel_magic.cleanup import cleanup_tile
+
+    image = remove_background(image, chromakey_color=chromakey_color)
+    return cleanup_tile(image, chromakey_color=chromakey_color)
+
+
+def _normalize_animation_frames(frames: list[Image.Image]) -> list[Image.Image]:
+    """Pad all frames to the same size with bottom-center anchoring."""
+    if not frames:
+        return frames
+    max_w = max(f.width for f in frames)
+    max_h = max(f.height for f in frames)
+    normalized = []
+    for f in frames:
+        canvas = Image.new("RGBA", (max_w, max_h), (0, 0, 0, 0))
+        x = (max_w - f.width) // 2
+        y = max_h - f.height
+        canvas.paste(f, (x, y), f)
+        normalized.append(canvas)
+    return normalized
+
+
 def _resize_sprites(
     labels: list[str],
     out_dir: Path,
@@ -273,7 +298,8 @@ async def _generate(args: argparse.Namespace) -> None:
             print(f"  {label}: {cleaned.width}x{cleaned.height}")
         print(f"Extracted {len(sprites)} sprites to {views_dir}")
 
-        _resize_sprites(view_labels, views_dir, args.sizes, args.num_colors)
+        actual_labels = [view_labels[i] if i < len(view_labels) else f"view_{i}" for i in range(len(sprites))]
+        _resize_sprites(actual_labels, views_dir, args.sizes, args.num_colors)
     else:
         print("Warning: could not extract individual sprites from sheet")
 
@@ -406,11 +432,10 @@ async def _animate(args: argparse.Namespace) -> None:
     )
 
     # Clean each frame (background removal + outline strip/re-add)
-    cleaned_frames = []
-    for i, frame in enumerate(raw_frames, 1):
-        cleaned = _clean_sprite(frame, chromakey_color)
-        cleaned.save(anim_dir / f"frame_{i:02d}.png")
-        cleaned_frames.append(cleaned)
+    cleaned_frames = [_clean_sprite(frame, chromakey_color) for frame in raw_frames]
+    cleaned_frames = _normalize_animation_frames(cleaned_frames)
+    for i, frame in enumerate(cleaned_frames, 1):
+        frame.save(anim_dir / f"frame_{i:02d}.png")
 
     sheet = assemble_sprite_sheet(cleaned_frames)
     sheet.save(anim_dir / "sheet.png")
@@ -467,11 +492,10 @@ async def _animate_object(args: argparse.Namespace) -> None:
         subject="object",
     )
 
-    cleaned_frames = []
-    for i, frame in enumerate(raw_frames, 1):
-        cleaned = _clean_sprite(frame, chromakey_color)
-        cleaned.save(anim_dir / f"frame_{i:02d}.png")
-        cleaned_frames.append(cleaned)
+    cleaned_frames = [_clean_sprite(frame, chromakey_color) for frame in raw_frames]
+    cleaned_frames = _normalize_animation_frames(cleaned_frames)
+    for i, frame in enumerate(cleaned_frames, 1):
+        frame.save(anim_dir / f"frame_{i:02d}.png")
 
     sheet = assemble_sprite_sheet(cleaned_frames)
     sheet.save(anim_dir / "sheet.png")
@@ -562,11 +586,10 @@ async def _effect(args: argparse.Namespace) -> None:
             subject="effect",
         )
 
-        cleaned_frames = []
-        for i, frame in enumerate(raw_frames, 1):
-            cleaned = _clean_sprite(frame, chromakey_color)
-            cleaned.save(eff_dir / f"frame_{i:02d}.png")
-            cleaned_frames.append(cleaned)
+        cleaned_frames = [_clean_sprite(frame, chromakey_color) for frame in raw_frames]
+        cleaned_frames = _normalize_animation_frames(cleaned_frames)
+        for i, frame in enumerate(cleaned_frames, 1):
+            frame.save(eff_dir / f"frame_{i:02d}.png")
 
         sheet = assemble_sprite_sheet(cleaned_frames)
         sheet.save(eff_dir / "sheet.png")
@@ -683,7 +706,7 @@ async def _tile(args: argparse.Namespace) -> None:
 
     # Background removal + cleanup + fit on each tile
     for label, tile_img in tiles.items():
-        tile_img = _clean_sprite(tile_img, chromakey_color)
+        tile_img = _clean_tile(tile_img, chromakey_color)
         tile_img = fit_tile(tile_img, target_width=64, depth=args.depth)
 
         safe_name = label.replace(" ", "_").replace("/", "_")
