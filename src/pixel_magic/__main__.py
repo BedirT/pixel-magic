@@ -219,7 +219,7 @@ def _build_parser() -> argparse.ArgumentParser:
     eff_mode.add_argument("--preset", help="Effect preset group (e.g., combat, magic, nature, status, custom)")
     eff.add_argument("--names", default="", help="Custom effect names for --preset custom (comma-separated)")
     eff.add_argument("--description", default="", help="Optional effect description (auto-inferred from name if empty)")
-    eff.add_argument("--frames", type=int, default=6, help="Total animation frames (default: 6)")
+    eff.add_argument("--frames", type=_positive_int, default=6, help="Total animation frames (default: 6, minimum: 2)")
     eff.add_argument("--loop", action="store_true", default=None, help="Force looping animation")
     eff.add_argument("--no-loop", dest="loop", action="store_false", help="Force one-shot animation")
     eff.add_argument("--output-dir", default="output", help="Output directory (default: output)")
@@ -551,6 +551,9 @@ async def _effect(args: argparse.Namespace) -> None:
         else:
             eff_dir = Path(args.output_dir) / "effects" / safe_name
         eff_dir.mkdir(parents=True, exist_ok=True)
+
+        if loop and args.frames < 3:
+            raise ValueError("Looping animations need at least 3 frames (first + middle + last)")
 
         print(f"Generating {effect_name} effect ({args.frames} frames, {'loop' if loop else 'one-shot'})...")
 

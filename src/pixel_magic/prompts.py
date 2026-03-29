@@ -362,9 +362,12 @@ def build_effect_reference_prompt(
     """Build a text-to-image prompt for generating a single effect reference frame."""
     hex_color = _CHROMAKEY_HEX.get(chromakey_color, "#FF00FF")
 
-    # Use the animation description to infer the "peak moment"
     anim_desc = _EFFECT_ANIMATION_DESCRIPTIONS.get(effect_name, "")
     effect_desc = description or effect_name.replace("_", " ")
+
+    moment = f"Show the effect at its peak/most recognizable state — the single most iconic frame of {effect_desc}"
+    if anim_desc:
+        moment += f". This effect is {anim_desc}"
 
     prompt: dict[str, Any] = {
         "image_type": "pixel_art",
@@ -378,7 +381,7 @@ def build_effect_reference_prompt(
         "effect": {
             "name": effect_name,
             "description": f"A pixel art {effect_desc} effect",
-            "moment": f"Show the effect at its peak/most recognizable state — the single most iconic frame of {effect_desc}",
+            "moment": moment,
         },
         "art_details": {
             "pixel_density": "medium",
