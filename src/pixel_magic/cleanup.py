@@ -23,7 +23,7 @@ def cleanup_sprite(
 
     Args:
         image: RGBA sprite from extract_sprites().
-        chromakey_color: "green" or "blue" — which channel to reject.
+        chromakey_color: "green", "blue", or "pink" — which chromakey to reject.
 
     Returns:
         RGBA image with binary alpha, trimmed to cleaned bounds.
@@ -44,6 +44,30 @@ def cleanup_sprite(
     return Image.fromarray(trimmed, "RGBA")
 
 
+def cleanup_tile(
+    image: Image.Image, chromakey_color: str = "green"
+) -> Image.Image:
+    """Clean mask for a terrain tile — like cleanup_sprite but keeps natural edges.
+
+    Skips outline stripping since terrain tiles don't have an AI outline
+    that needs to be replaced algorithmically.
+    """
+    arr = np.array(image.convert("RGBA"), dtype=np.uint8)
+
+    candidate = _build_candidate_mask(arr, chromakey_color)
+    candidate = _remove_small_islands(candidate, min_size=3)
+    candidate = _fill_small_holes(candidate, max_size=2)
+    # No _strip_outer_outline — terrain tiles keep their natural edges
+
+    result = _rebuild_with_hard_alpha(arr, candidate)
+
+    trimmed = _trim_to_bounds(result, candidate)
+    if trimmed is None:
+        return image
+
+    return Image.fromarray(trimmed, "RGBA")
+
+
 def _build_candidate_mask(
     arr: np.ndarray, chromakey_color: str, margin: int = 30
 ) -> np.ndarray:
@@ -56,6 +80,8 @@ def _build_candidate_mask(
     # Reject chromakey-dominant pixels
     if chromakey_color == "blue":
         contaminated = b > (np.maximum(r, g).astype(np.int16) + margin)
+    elif chromakey_color == "pink":
+        contaminated = np.minimum(r, b).astype(np.int16) > (g.astype(np.int16) + margin)
     else:
         contaminated = g > (np.maximum(r, b).astype(np.int16) + margin)
 

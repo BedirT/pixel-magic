@@ -6,7 +6,7 @@ import json
 from typing import Any
 
 
-_CHROMAKEY_HEX = {"green": "#00FF00", "blue": "#0000FF"}
+_CHROMAKEY_HEX = {"green": "#00FF00", "blue": "#0000FF", "pink": "#FF00FF"}
 
 _VIEWS_4DIR: list[dict[str, str]] = [
     {
@@ -388,5 +388,112 @@ RULES:
 - Keep the characters EXACTLY as they are — same proportions, colors, poses, pixel art style
 - Do NOT modify any character pixels — only remove the stone platforms and corner labels
 - Fill where the platforms and labels were with solid {chromakey_color} ({hex_color})
+- The output must be the same dimensions as the input
+- Maintain the same {layout_desc} layout"""
+
+
+# ---------------------------------------------------------------------------
+# Tile generation prompts
+# ---------------------------------------------------------------------------
+
+
+def build_tile_canvas_prompt(
+    tile_labels: list[str],
+    style: str = "16-bit SNES RPG style",
+    max_colors: int = 16,
+    chromakey_color: str = "green",
+    depth: int = 4,
+    grid_cols: int | None = None,
+    grid_rows: int | None = None,
+) -> str:
+    """Build a JSON-structured prompt for canvas-based tile generation."""
+    hex_color = _CHROMAKEY_HEX.get(chromakey_color, "#00FF00")
+
+    layout_desc = ""
+    if grid_cols and grid_rows:
+        layout_desc = f" in a {grid_cols}x{grid_rows} grid"
+
+    if depth > 0:
+        shape_desc = "an isometric diamond with visible side faces (3D depth)"
+        fill_rule = (
+            "Fill the diamond top face with the terrain texture. "
+            "Draw appropriate side faces below the diamond edges to give the tile depth and volume."
+        )
+    else:
+        shape_desc = "a flat isometric diamond (top face only)"
+        fill_rule = "Fill only the diamond top face with the terrain texture. No side faces."
+
+    tiles_desc = [
+        {"slot": i + 1, "label": label, "terrain": label}
+        for i, label in enumerate(tile_labels)
+    ]
+
+    prompt: dict[str, Any] = {
+        "image_type": "pixel_art",
+        "style": "isometric",
+        "purpose": "terrain_tileset",
+        "reference_image": {
+            "description": (
+                f"The attached image shows exactly {len(tile_labels)} labeled isometric diamond outlines"
+                f"{layout_desc} on {chromakey_color} ({hex_color}) background"
+            ),
+            "usage": (
+                "Each diamond outline shows exactly where to draw the terrain tile. "
+                "Fill each diamond with the terrain texture labeled above it. "
+                "Do not invent extra tiles. Any unlabeled or outline-free area must remain solid "
+                f"{chromakey_color} ({hex_color}) background."
+            ),
+        },
+        "background": {
+            "type": "chromakey",
+            "rule": _background_rule(chromakey_color),
+            "instruction": _background_instruction(chromakey_color),
+        },
+        "tiles": tiles_desc,
+        "shape": {
+            "type": shape_desc,
+            "fill_rule": fill_rule,
+        },
+        "art_details": {
+            "pixel_density": "medium",
+            "shading": "simple 2-3 tone stepped shading per color area",
+            "outline": "1-pixel black (#000000) outline around the entire tile perimeter",
+            "anti_aliasing": "none — every edge is a hard pixel step",
+            "perspective": "isometric 3/4 top-down (~30 degrees from above)",
+            "max_colors": max_colors,
+            "style_reference": style,
+            "lighting": "consistent upper-left light source across all tiles",
+        },
+        "tiling_rules": {
+            "seamless": "tile edges should be designed to connect smoothly when placed adjacent in an isometric grid",
+            "consistency": "all tiles must share the same art style, palette warmth, and level of detail",
+        },
+    }
+
+    return json.dumps(prompt, indent=2)
+
+
+def build_tile_cleanup_prompt(
+    tile_count: int,
+    chromakey_color: str = "green",
+    grid_cols: int | None = None,
+    grid_rows: int | None = None,
+) -> str:
+    """Prompt for removing labels and wireframe guides from generated tiles."""
+    hex_color = _CHROMAKEY_HEX.get(chromakey_color, "#00FF00")
+    if grid_cols and grid_rows:
+        layout_desc = f"arranged in a {grid_cols}x{grid_rows} grid"
+    else:
+        layout_desc = "in a row"
+
+    return f"""\
+This is a pixel art tileset with {tile_count} isometric terrain tiles {layout_desc}. Each tile has a text label above it and may have thin black wireframe guide lines.
+
+Remove the text labels AND any wireframe guide outlines from EVERY tile. Replace those pixels with {chromakey_color} ({hex_color}) background.
+
+RULES:
+- Keep the terrain tiles EXACTLY as they are — same textures, colors, shading, pixel art style
+- Do NOT modify any terrain tile pixels — only remove the text labels and wireframe guides
+- Fill where the labels and guides were with solid {chromakey_color} ({hex_color})
 - The output must be the same dimensions as the input
 - Maintain the same {layout_desc} layout"""
