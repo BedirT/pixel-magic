@@ -470,10 +470,6 @@ async def generate_animation(
     # Extract frames (centered within cells)
     frames = extract_frames(sheet, total_frames, cols=grid_cols, slot_size=slot_size)
 
-    if save_dir:
-        for i, frame in enumerate(frames, 1):
-            frame.save(save_dir / f"frame_{i:02d}.png")
-
     return frames
 
 

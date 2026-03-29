@@ -2,7 +2,7 @@
 
 ## Overview
 
-pixel-magic generates multi-view isometric pixel art character sprites using Gemini image generation. The default pipeline builds a canvas with unlabeled isometric platforms, Gemini fills in characters, platforms are removed in a cleanup pass. An alternative text-only mode (`--no-platform`) uses JSON-structured prompts without visual references.
+pixel-magic generates isometric pixel art assets using Gemini image generation. All four commands (`generate`, `animate`, `tile`, `object`) share the same 2-pass canvas pipeline: build a template canvas with guides (platforms, wireframes, labels), Gemini fills in content, a cleanup pass removes guides. Post-processing is unified: all commands use the same `_clean_sprite()` pipeline (background removal → mask cleanup with outline strip → outline re-add).
 
 ## Process Flow
 
@@ -96,14 +96,18 @@ pixel-magic generates multi-view isometric pixel art character sprites using Gem
                     └──────────┬─────────────┘
                                │
                     ┌──────────▼─────────────┐
-                    │   Mask Cleanup          │
+                    │   Mask Cleanup +        │
+                    │   Outline Strip/Re-add  │
                     │                         │
                     │  1. Chromakey-dominance │
                     │     rejection           │
                     │  2. Island/hole cleanup │
-                    │  3. Binary alpha        │
+                    │  3. Outer outline strip │
+                    │  4. Binary alpha        │
                     │     (0 or 255 only)     │
-                    │  4. Trim to bounds      │
+                    │  5. Trim to bounds      │
+                    │  6. Add clean 1px black │
+                    │     outline (erosion)   │
                     │                         │
                     │  output/<name>/views/   │
                     │    <direction>.png      │
@@ -208,9 +212,9 @@ The composite sheet is split into individual view PNGs using connected-component
 
 **Step F: Sort & Crop** — merged blobs are sorted left-to-right (matching the prompt's view order) and cropped with 2px padding. Each raw sprite is saved to `output/<name>/views_raw/`.
 
-### 8. Mask Cleanup
+### 8. Mask Cleanup + Outline Strip/Re-add
 
-Each extracted sprite is cleaned to produce a binary-alpha canonical sprite saved to `output/<name>/views/`.
+Each extracted sprite is cleaned and given a uniform outline. This pipeline (`_clean_sprite()`) is shared by all four commands (generate, animate, tile, object).
 
 **Step A: Candidate Mask** — pixels with alpha >= 32 are candidates for the foreground.
 
@@ -218,9 +222,13 @@ Each extracted sprite is cleaned to produce a binary-alpha canonical sprite save
 
 **Step C: Morphological Cleanup** — 8-connected island removal (< 3px) and hole filling (enclosed holes <= 2px).
 
-**Step D: Hard Alpha** — alpha is set to 0 or 255 (no semi-transparency). RGB is zeroed on transparent pixels.
+**Step D: Outline Strip** — the outermost 1px dark boundary is removed. AI outlines are inconsistent (grey, varying thickness, sometimes missing), so they're stripped to prepare for algorithmic re-add.
 
-**Step E: Trim** — crop to the cleaned mask bounding box with 2px padding. If cleanup removes all pixels, the original sprite is returned unchanged.
+**Step E: Hard Alpha** — alpha is set to 0 or 255 (no semi-transparency). RGB is zeroed on transparent pixels.
+
+**Step F: Trim** — crop to the cleaned mask bounding box with 2px padding. If cleanup removes all pixels, the original sprite is returned unchanged.
+
+**Step G: Outline Re-add** — a uniform 1px black outline is added via morphological erosion (4-connectivity). The outer boundary of all opaque pixels is painted pure black. This runs at native size, guaranteeing clean outlines regardless of whether `--sizes` is used.
 
 ### 9. Pixel Art Resize (optional)
 

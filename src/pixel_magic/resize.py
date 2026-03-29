@@ -51,7 +51,7 @@ def resize_sprite(
     pixelated = pixelate(sprite, num_colors=num_colors)
 
     # Regularize contours on the small pixelated result
-    pixelated = _regularize_contours(pixelated)
+    pixelated = add_outline(pixelated)
 
     # Fit into target box preserving aspect ratio, nearest-neighbor
     w, h = pixelated.size
@@ -102,11 +102,11 @@ def parse_sizes(sizes_str: str) -> list[int]:
 # ---------------------------------------------------------------------------
 
 
-def _regularize_contours(image: Image.Image) -> Image.Image:
-    """Add a clean 1px black outline around the pixelated sprite.
+def add_outline(image: Image.Image) -> Image.Image:
+    """Add a clean 1px black outline around a sprite.
 
-    The AI's original outlines are stripped during cleanup (pre-downscale).
-    This adds a uniform 1px black outline at the target pixel art size.
+    Works at any resolution. The AI's original outlines are stripped
+    during cleanup; this adds a uniform 1px black outline back.
     """
     arr = np.array(image.convert("RGBA"), dtype=np.uint8)
     alpha = arr[:, :, 3]

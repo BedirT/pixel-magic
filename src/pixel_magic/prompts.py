@@ -497,3 +497,117 @@ RULES:
 - Fill where the labels and guides were with solid {chromakey_color} ({hex_color})
 - The output must be the same dimensions as the input
 - Maintain the same {layout_desc} layout"""
+
+
+# ---------------------------------------------------------------------------
+# Object generation prompts
+# ---------------------------------------------------------------------------
+
+
+def build_object_canvas_prompt(
+    object_labels: list[str],
+    description: str = "",
+    style: str = "16-bit SNES RPG style",
+    max_colors: int = 16,
+    chromakey_color: str = "pink",
+    depth: int = 8,
+    grid_cols: int | None = None,
+    grid_rows: int | None = None,
+) -> str:
+    """Build a JSON-structured prompt for canvas-based object generation."""
+    hex_color = _CHROMAKEY_HEX.get(chromakey_color, "#FF00FF")
+
+    layout_desc = ""
+    if grid_cols and grid_rows:
+        layout_desc = f" in a {grid_cols}x{grid_rows} grid"
+
+    objects_desc = [
+        {"slot": i + 1, "label": label}
+        for i, label in enumerate(object_labels)
+    ]
+
+    prompt: dict[str, Any] = {
+        "image_type": "pixel_art",
+        "style": "isometric",
+        "purpose": "world_object_props",
+        "reference_image": {
+            "description": (
+                f"The attached image shows exactly {len(object_labels)} labeled "
+                f"isometric stone platforms{layout_desc} "
+                f"on {chromakey_color} ({hex_color}) background"
+            ),
+            "usage": (
+                "Each platform shows where to draw the labeled object. "
+                "Draw one object per platform, standing or sitting on the platform surface. "
+                "Do not invent extra objects. Any unlabeled area must remain solid "
+                f"{chromakey_color} ({hex_color}) background."
+            ),
+        },
+        "background": {
+            "type": "chromakey",
+            "rule": _background_rule(chromakey_color),
+            "instruction": _background_instruction(chromakey_color),
+        },
+        "objects": objects_desc,
+        "variant_rule": (
+            "Each object must be visually DISTINCT — different shapes, silhouettes, "
+            "proportions, and surface details. Do NOT draw the same object twice with "
+            "minor color changes. Make each one immediately distinguishable at a glance."
+        ),
+        "placement": {
+            "grounding": (
+                "Each object MUST stand or sit directly ON the platform surface — "
+                "firmly touching, not floating above"
+            ),
+            "centering": "Center each object horizontally on its platform",
+            "size": (
+                "Objects should be proportional to the platform — tall objects "
+                "(trees) can extend well above, short objects (rocks, chests) stay compact"
+            ),
+        },
+        "art_details": {
+            "pixel_density": "medium",
+            "shading": "simple 2-3 tone stepped shading per color area",
+            "outline": (
+                "Every element MUST have a 1-pixel black (#000000) outline — "
+                "the object and all distinct parts must be fully enclosed by "
+                "a black pixel border with no gaps"
+            ),
+            "anti_aliasing": "none — every edge is a hard pixel step",
+            "perspective": "isometric 3/4 top-down (~30 degrees from above)",
+            "max_colors": max_colors,
+            "style_reference": style,
+            "lighting": "consistent upper-left light source across all objects",
+        },
+    }
+
+    if description:
+        prompt["theme"] = description
+
+    return json.dumps(prompt, indent=2)
+
+
+def build_object_cleanup_prompt(
+    object_count: int,
+    chromakey_color: str = "pink",
+    grid_cols: int | None = None,
+    grid_rows: int | None = None,
+) -> str:
+    """Prompt for removing platforms and labels from generated objects."""
+    hex_color = _CHROMAKEY_HEX.get(chromakey_color, "#FF00FF")
+    if grid_cols and grid_rows:
+        layout_desc = f"arranged in a {grid_cols}x{grid_rows} grid"
+    else:
+        layout_desc = "in a row"
+
+    return f"""\
+This is a pixel art sheet with {object_count} isometric world objects {layout_desc} on stone platforms. Each platform has a text label above it.
+
+Remove the stone platforms AND the text labels from EVERY object. Replace all platform and label pixels with {chromakey_color} ({hex_color}) background.
+
+RULES:
+- Keep the objects EXACTLY as they are — same shapes, colors, shading, pixel art style
+- Do NOT modify any object pixels — only remove the stone platforms and text labels
+- Fill where the platforms and labels were with solid {chromakey_color} ({hex_color})
+- The output must be the same dimensions as the input
+- Maintain the same {layout_desc} layout"""
