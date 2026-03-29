@@ -136,7 +136,7 @@ def build_canvas(
 
     Returns (canvas, cols, slot_size, aspect_ratio, image_size).
     """
-    chromakey_rgb = {"green": (0, 255, 0), "blue": (0, 0, 255)}
+    chromakey_rgb = {"green": (0, 255, 0), "blue": (0, 0, 255), "pink": (255, 0, 255)}
     fill = chromakey_rgb.get(chromakey_color, (0, 255, 0))
 
     slot_w, slot_h = reference_frame.size
@@ -285,7 +285,7 @@ def build_generation_canvas(
     """
     from pixel_magic.platform import create_platform_grid
 
-    chromakey_rgb = {"green": (0, 255, 0), "blue": (0, 0, 255)}
+    chromakey_rgb = {"green": (0, 255, 0), "blue": (0, 0, 255), "pink": (255, 0, 255)}
     fill = chromakey_rgb.get(chromakey_color, (0, 255, 0))
 
     n_views = len(view_labels)
@@ -379,6 +379,7 @@ async def generate_animation(
     save_dir: Path | None = None,
     platform: bool = False,
     tiles: int = 1,
+    subject: str = "character",
 ) -> list[Image.Image]:
     """Generate animation by filling a pre-built sprite sheet canvas.
 
@@ -417,18 +418,34 @@ async def generate_animation(
     print(f"  Gemini: {aspect_ratio} ratio, {image_size} output, slot={slot_size[0]}x{slot_size[1]}")
 
     # Generate
-    prompt = build_canvas_prompt(
-        animation_type=animation_type,
-        total_frames=total_frames,
-        character_description=character_description,
-        style=style,
-        chromakey_color=chromakey_color,
-        platform=platform,
-        loop=loop,
-        tiles=tiles,
-        grid_cols=grid_cols,
-        grid_rows=grid_rows,
-    )
+    if subject == "object":
+        from pixel_magic.prompts import build_object_animation_prompt
+
+        prompt = build_object_animation_prompt(
+            animation_type=animation_type,
+            total_frames=total_frames,
+            object_description=character_description,
+            style=style,
+            chromakey_color=chromakey_color,
+            platform=platform,
+            loop=loop,
+            tiles=tiles,
+            grid_cols=grid_cols,
+            grid_rows=grid_rows,
+        )
+    else:
+        prompt = build_canvas_prompt(
+            animation_type=animation_type,
+            total_frames=total_frames,
+            character_description=character_description,
+            style=style,
+            chromakey_color=chromakey_color,
+            platform=platform,
+            loop=loop,
+            tiles=tiles,
+            grid_cols=grid_cols,
+            grid_rows=grid_rows,
+        )
 
     print("  Generating sprite sheet...")
     result = await provider.generate_with_images(
@@ -469,10 +486,6 @@ async def generate_animation(
 
     # Extract frames (centered within cells)
     frames = extract_frames(sheet, total_frames, cols=grid_cols, slot_size=slot_size)
-
-    if save_dir:
-        for i, frame in enumerate(frames, 1):
-            frame.save(save_dir / f"frame_{i:02d}.png")
 
     return frames
 

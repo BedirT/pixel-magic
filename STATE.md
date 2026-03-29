@@ -1,27 +1,22 @@
 # Project State
 
-## Current Status: CLI Rewrite (cli-rewrite branch)
+## Current Status: Feature-Complete Core
 
-Scrapped the over-engineered MCP server (13k+ lines, 40+ files, 13 deps) and rebuilt as a bare-bones CLI tool.
+Bare-bones CLI tool for pixel art generation. All four generation commands are working.
 
 ## What Works
 
-- **Character generation** — `pixel-magic generate` with `--name`, `--description`, `--directions 4|8`
-- **OpenAI provider** — gpt-image-1.5 with native transparency, retry logic
-- **Gemini provider** — gemini-3.1-flash-image-preview with chromakey background (green or blue), retry logic
-- **JSON-structured prompts** — multi-view isometric character reference sheets (2 views for 4-dir, 5 views for 8-dir), black outline enforcement on all elements
-- **Raw output** — saves exactly what the model returns, zero processing
-- **Background removal (Gemini)** — flood-fill chromakey removal from image borders using channel-ratio detection (`G > max(R,B) + 30`), 4-connected BFS. Produces binary alpha (0 or 255 only). Boundary despill clamps chromakey channel on the 1px sprite edge. Supports green or blue chromakey via `--chromakey` flag.
-- **Sprite extraction** — connected-component analysis on alpha channel to split composite sheets into individual view PNGs. Handles inconsistent LLM placement via proximity merging, noise filtering, and adaptive merge when expected view count is known. Raw extractions saved to `output/<name>/views_raw/`.
-- **Mask cleanup + outline strip** — extracted sprites are cleaned: chromakey-dominant fringe rejection, island/hole removal, and outer outline stripping (removes the AI's 1px dark boundary so pixelation works on a clean body). Cleaned canonical sprites saved to `output/<name>/views/`.
-- **Outline re-add** — after pixelation, a uniform 1px black outline is added algorithmically via morphological erosion. This replaces the AI's inconsistent outlines with a guaranteed clean silhouette at every target size.
-- **Pixel art resize** — uses [proper-pixel-art](https://github.com/KennethJAllen/proper-pixel-art) to convert AI sprites to true pixel art at target sizes (16–256px). Detects the underlying pixel grid via edge detection + Hough line transform, samples dominant color per cell, optional palette quantization. `--sizes` and `--num-colors` flags.
+- **Character generation** — `pixel-magic generate` with `--name`, `--description`, `--directions 4|8`, `--tiles 1|4|9`
+- **Animation generation** — `pixel-magic animate` with walk/idle/attack/run/cast cycles, looping or one-shot, platform-guided perspective
+- **Terrain tile generation** — `pixel-magic tile` with `--type` variants or `--theme` presets (forest, dungeon, desert, winter), diamond wireframe canvas
+- **World object generation** — `pixel-magic object` with `--name` variants or `--preset` presets (forest, dungeon, village, camp, desert, winter), platform-guided canvas
+- **Gemini provider** — canvas-based 2-pass pipeline (generate → cleanup), JSON-structured prompts, retry logic
+- **Unified post-processing** — all commands share the same pipeline: background removal (flood-fill chromakey) → mask cleanup (chromakey rejection, island/hole removal, outline strip) → outline re-add (1px black via morphological erosion). Tile command adds `fit_tile()` after cleanup.
+- **Pixel art resize** — optional `--sizes` flag on generate/tile/object. Uses [proper-pixel-art](https://github.com/KennethJAllen/proper-pixel-art) for grid detection + color sampling, then outline re-add + optional palette quantization.
 
 ## What's Not Done Yet
 
-- [ ] Animation support (walk, idle, attack frame strips)
-- [ ] Tileset generation
-- [ ] Effect/UI/item generation
+- [ ] Internal outline treatment (between body parts, armor pieces — same strip+re-add as outer outlines)
 - [ ] Atlas packing (combine frames into sprite atlas)
 - [ ] Tests
 
@@ -33,13 +28,13 @@ Scrapped the over-engineered MCP server (13k+ lines, 40+ files, 13 deps) and reb
 
 ## Architecture Decisions
 
-- **No post-processing on raw output** — raw.png is always preserved untouched for debugging.
-- **Flood-fill chromakey for background removal** — replaced rembg (U2-Net) which produced soft alpha (98.7% semi-transparent pixels). Flood fill from image borders with channel-ratio detection produces binary alpha by construction, preserves interior green pixels (orc skin), and removes ~92MB of dependencies. See `docs/research/background-removal.md` for full comparison of 10 approaches evaluated.
-- **Boundary despill** — JPEG compression and AI rendering blend chromakey color into the 1px sprite edge. Despill clamps the chromakey channel to max of the other two on boundary pixels only.
-- **Outline strip + re-add** — AI outlines are inconsistent (grey, varying thickness, sometimes missing). Rather than trying to preserve them through downscaling, we strip the outermost dark boundary in the high-res sprite and add a guaranteed uniform 1px black outline algorithmically at the target pixel art size. Produces 100% black boundary coverage at 64x64 and 128x128.
-- **proper-pixel-art for resize** — AI sprites look pixelated but aren't real pixel art (anti-aliasing, sub-pixel gradients). proper-pixel-art detects the actual pixel grid via Canny edge detection + Hough line transform, then samples dominant color per cell using offset binning. This produces genuine pixel art at any target size.
+- **Unified post-processing** — all commands share `_clean_sprite()` (remove background → cleanup mask → add outline) and `_resize_sprites()`. No per-command duplication. Only tile adds an extra `fit_tile()` step.
+- **Outline strip + re-add at all sizes** — AI outlines are inconsistent (grey, varying thickness, sometimes missing). `cleanup_sprite()` strips the outermost dark boundary, then `add_outline()` paints a uniform 1px black outline via morphological erosion. This runs at native size, not just during resize.
+- **Canvas-based 2-pass pipeline** — all canvas commands (generate, animate, tile, object) use the same pattern: build template → Gemini fills content → cleanup pass removes guides. Templates vary (platforms for characters/objects, wireframes for tiles).
+- **Pink chromakey default for tile/object** — green backgrounds destroy grass/tree tiles, blue destroys water/ice. Pink preserves both. Character generation still defaults to green (from `.env`).
+- **Flood-fill chromakey for background removal** — replaced rembg (U2-Net) which produced soft alpha (98.7% semi-transparent pixels). Flood fill from image borders with channel-ratio detection produces binary alpha by construction.
+- **proper-pixel-art for resize** — AI sprites look pixelated but aren't real pixel art. proper-pixel-art detects the actual pixel grid via Canny edge detection + Hough line transform, then samples dominant color per cell.
 - **JSON prompts** — models respond well to structured JSON describing the desired image. Better consistency than prose prompts.
-- **Single API call per character** — generate all views in one image for consistency across directions.
 - **CLI over MCP** — simpler, no server overhead, easy to script.
 
 ## Structure
@@ -47,23 +42,22 @@ Scrapped the over-engineered MCP server (13k+ lines, 40+ files, 13 deps) and reb
 ```
 src/pixel_magic/
     __init__.py
-    __main__.py      # CLI entry point (argparse)
+    __main__.py      # CLI entry point (argparse) + shared post-processing helpers
     config.py        # Settings from .env
-    prompts.py       # JSON prompt builder for character sheets
+    prompts.py       # JSON prompt builders for all commands
+    animate.py       # Canvas building, grid layout, frame extraction
+    tile.py          # Terrain tile generation (canvas, extraction, fitting)
+    object.py        # World object generation (canvas, extraction)
+    platform.py      # Isometric platform + tile outline generation
     background.py    # Flood-fill chromakey removal + boundary despill
     extract.py       # Smart sprite extraction from sheets
     cleanup.py       # Mask cleanup + outer outline stripping
-    resize.py        # Pixel art resize (proper-pixel-art) + outline re-add
+    resize.py        # Pixel art resize (proper-pixel-art) + outline add
     providers/
         __init__.py
         base.py      # GenerationConfig / GenerationResult contracts
-        openai.py    # OpenAI generation backend
         gemini.py    # Gemini generation backend
 docs/
     process.md       # Generation process flowchart
     cli.md           # CLI reference documentation
 ```
-
-## Old Codebase (main branch)
-
-The previous implementation is preserved on `main`. It had: MCP server, LLM agent orchestration, multi-stage executor, deterministic QA, vision QA, OpenTelemetry tracing, usage tracking. All removed in favor of simplicity.

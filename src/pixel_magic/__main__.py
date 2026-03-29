@@ -19,14 +19,48 @@ def _positive_int(value: str) -> int:
     return ivalue
 
 
-def _resolve_tile_chromakey(
+def _resolve_chromakey_pink(
     args_chromakey: str | None,
-    settings_chromakey: str,
 ) -> str:
-    """Tile generation defaults to pink so green and blue terrain survive extraction."""
+    """Default to pink chromakey so green and blue content survives extraction."""
     if args_chromakey is not None:
         return args_chromakey
     return "pink"
+
+
+def _clean_sprite(image: Image.Image, chromakey_color: str) -> Image.Image:
+    """Shared post-processing: remove background, clean mask, add outline."""
+    from pixel_magic.background import remove_background
+    from pixel_magic.cleanup import cleanup_sprite
+    from pixel_magic.resize import add_outline
+
+    image = remove_background(image, chromakey_color=chromakey_color)
+    image = cleanup_sprite(image, chromakey_color=chromakey_color)
+    return add_outline(image)
+
+
+def _resize_sprites(
+    labels: list[str],
+    out_dir: Path,
+    sizes_str: str,
+    num_colors: int | None,
+) -> None:
+    """Resize saved PNGs to pixel art sizes."""
+    if not sizes_str:
+        return
+    from pixel_magic.resize import parse_sizes, resize_sprite
+
+    sizes = parse_sizes(sizes_str)
+    for size in sizes:
+        size_dir = out_dir / f"{size}x{size}"
+        size_dir.mkdir(exist_ok=True)
+        for label in labels:
+            safe_name = label.replace(" ", "_").replace("/", "_")
+            src = Image.open(out_dir / f"{safe_name}.png").convert("RGBA")
+            resized = resize_sprite(src, size, num_colors=num_colors)
+            resized.save(size_dir / f"{safe_name}.png")
+        print(f"  Resized to {size}x{size}")
+    print(f"Saved {len(sizes)} size variants")
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -95,6 +129,30 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Platform tile count: 1 (default), 4 (2x2 grid), 9 (3x3 grid). More tiles = more room for action poses.",
     )
 
+    anim_obj = sub.add_parser("animate-object", help="Generate animation frames for an existing object")
+    anim_obj.add_argument("--set", required=True, help="Object set name (e.g., forest, torch)")
+    anim_obj.add_argument("--name", required=True, help="Object name within the set (e.g., oak_tree_1)")
+    anim_obj.add_argument("--animation", default="sway", help="Animation type: sway, flicker, burn, pulse, open, bob, spin (default: sway)")
+    anim_obj.add_argument("--description", default="", help="Object description (helps model consistency)")
+    anim_obj.add_argument("--frames", type=int, default=5, help="Total frames in cycle (default: 5)")
+    anim_obj.add_argument("--loop", action="store_true", default=True, help="Looping animation (default)")
+    anim_obj.add_argument("--no-loop", dest="loop", action="store_false", help="One-shot animation (open, etc.)")
+    anim_obj.add_argument("--reference", default=None, help="Path to reference frame (overrides auto-detect)")
+    anim_obj.add_argument("--output-dir", default="output", help="Output directory (default: output)")
+    anim_obj.add_argument("--chromakey", choices=["green", "blue", "pink"], default=None, help="Chromakey color (default: pink)")
+    anim_obj.add_argument("--style", default="16-bit SNES RPG style", help="Art style")
+    anim_obj.add_argument("--platform", action="store_true", default=False, help="Add isometric platform for perspective")
+    anim_obj.add_argument("--no-platform", dest="platform", action="store_false", help="No platform (default)")
+    anim_obj.add_argument(
+        "--tiles", type=int, default=1, choices=[1, 4, 9],
+        help="Platform tile count: 1 (default), 4 (2x2 grid), 9 (3x3 grid).",
+    )
+    anim_obj.add_argument(
+        "--sizes", default="",
+        help='Resize frames to pixel art sizes (e.g. "32,64" or "all")',
+    )
+    anim_obj.add_argument("--num-colors", type=int, default=None, help="Palette size for resized frames")
+
     tile = sub.add_parser("tile", help="Generate isometric terrain tiles")
     tile_mode = tile.add_mutually_exclusive_group(required=True)
     tile_mode.add_argument("--type", dest="tile_type", help="Single tile type with variants (e.g., grass, stone, water)")
@@ -111,6 +169,24 @@ def _build_parser() -> argparse.ArgumentParser:
         help='Resize tiles to pixel art sizes (e.g. "32,64" or "all")',
     )
     tile.add_argument("--num-colors", type=int, default=None, help="Palette size for resized tiles")
+
+    obj = sub.add_parser("object", help="Generate isometric world objects/props")
+    obj_mode = obj.add_mutually_exclusive_group(required=True)
+    obj_mode.add_argument("--name", help="Single object type with variants (e.g., tree, rock, chest)")
+    obj_mode.add_argument("--preset", help="Themed object set (e.g., forest, dungeon, camp, custom)")
+    obj.add_argument("--variants", type=_positive_int, default=4, help="Number of variants (--name mode only, default: 4)")
+    obj.add_argument("--names", default="", help="Custom object names for --preset custom (comma-separated)")
+    obj.add_argument("--description", default="", help="Optional theme/style description")
+    obj.add_argument("--output-dir", default="output", help="Output directory (default: output)")
+    obj.add_argument("--style", default="16-bit SNES RPG style", help="Art style")
+    obj.add_argument("--max-colors", type=int, default=16, help="Max color count (default: 16)")
+    obj.add_argument("--chromakey", choices=["green", "blue", "pink"], default=None, help="Chromakey color")
+    obj.add_argument("--depth", type=int, default=8, help="Platform side depth in pixels (default: 8)")
+    obj.add_argument(
+        "--sizes", default="",
+        help='Resize objects to pixel art sizes (e.g. "32,64" or "all")',
+    )
+    obj.add_argument("--num-colors", type=int, default=None, help="Palette size for resized objects")
 
     return parser
 
@@ -168,37 +244,17 @@ async def _generate(args: argparse.Namespace) -> None:
             raw_label = view_labels[i] if i < len(view_labels) else f"view_{i}"
             sprite.save(views_raw_dir / f"{raw_label}.png")
 
-        # Clean sprites (mask hardening + contamination removal)
-        from pixel_magic.cleanup import cleanup_sprite
-
+        # Clean sprites (mask hardening + contamination removal + outline)
         views_dir = out_dir / "views"
         views_dir.mkdir(exist_ok=True)
-        cleaned_sprites = []
         for i, sprite in enumerate(sprites):
             label = view_labels[i] if i < len(view_labels) else f"view_{i}"
-            cleaned = cleanup_sprite(sprite, chromakey_color=chromakey_color)
+            cleaned = _clean_sprite(sprite, chromakey_color)
             cleaned.save(views_dir / f"{label}.png")
-            cleaned_sprites.append(cleaned)
             print(f"  {label}: {cleaned.width}x{cleaned.height}")
-        print(f"Extracted {len(cleaned_sprites)} sprites to {views_dir}")
+        print(f"Extracted {len(sprites)} sprites to {views_dir}")
 
-        # Use cleaned sprites for resize
-        sprites = cleaned_sprites
-
-        # Resize to pixel art sizes if requested
-        if args.sizes:
-            from pixel_magic.resize import parse_sizes, resize_sprite
-
-            sizes = parse_sizes(args.sizes)
-            for size in sizes:
-                size_dir = views_dir / f"{size}x{size}"
-                size_dir.mkdir(exist_ok=True)
-                for i, sprite in enumerate(sprites):
-                    label = view_labels[i] if i < len(view_labels) else f"view_{i}"
-                    resized = resize_sprite(sprite, size, num_colors=args.num_colors)
-                    resized.save(size_dir / f"{label}.png")
-                print(f"  Resized to {size}x{size}")
-            print(f"Saved {len(sizes)} size variants")
+        _resize_sprites(view_labels, views_dir, args.sizes, args.num_colors)
     else:
         print("Warning: could not extract individual sprites from sheet")
 
@@ -316,7 +372,7 @@ async def _animate(args: argparse.Namespace) -> None:
     anim_dir = Path(args.output_dir) / args.name / "animations" / args.animation
     print(f"Generating {args.frames}-frame {args.animation} animation...")
 
-    anim_frames = await generate_animation(
+    raw_frames = await generate_animation(
         provider=provider,
         reference_frame=reference,
         animation_type=args.animation,
@@ -330,9 +386,95 @@ async def _animate(args: argparse.Namespace) -> None:
         tiles=args.tiles,
     )
 
-    sheet = assemble_sprite_sheet(anim_frames)
+    # Clean each frame (background removal + outline strip/re-add)
+    cleaned_frames = []
+    for i, frame in enumerate(raw_frames, 1):
+        cleaned = _clean_sprite(frame, chromakey_color)
+        cleaned.save(anim_dir / f"frame_{i:02d}.png")
+        cleaned_frames.append(cleaned)
+
+    sheet = assemble_sprite_sheet(cleaned_frames)
     sheet.save(anim_dir / "sheet.png")
-    print(f"Saved {len(anim_frames)} frames + sheet to {anim_dir}")
+    print(f"Saved {len(cleaned_frames)} frames + sheet to {anim_dir}")
+
+
+async def _animate_object(args: argparse.Namespace) -> None:
+    from pixel_magic.animate import assemble_sprite_sheet, generate_animation
+    from pixel_magic.config import Settings
+    from pixel_magic.providers.gemini import GeminiProvider
+
+    settings = Settings()
+    chromakey_color = _resolve_chromakey_pink(args.chromakey)
+
+    # Find reference frame
+    if args.reference:
+        ref_path = Path(args.reference)
+    else:
+        safe_name = args.name.replace(" ", "_").replace("/", "_")
+        ref_path = Path(args.output_dir) / "objects" / args.set / f"{safe_name}.png"
+
+    if not ref_path.exists():
+        print(f"Error: reference frame not found at {ref_path}")
+        print("Run 'pixel-magic object' first, or use --reference to specify a path.")
+        sys.exit(1)
+
+    reference = Image.open(ref_path).convert("RGBA")
+    print(f"Reference: {ref_path} ({reference.width}x{reference.height})")
+
+    provider = GeminiProvider(
+        api_key=settings.google_api_key,
+        model=settings.gemini_image_model,
+    )
+
+    if args.tiles > 1:
+        args.platform = True
+
+    safe_name = args.name.replace(" ", "_").replace("/", "_")
+    anim_dir = Path(args.output_dir) / "objects" / args.set / "animations" / safe_name / args.animation
+    print(f"Generating {args.frames}-frame {args.animation} animation for {args.name}...")
+
+    raw_frames = await generate_animation(
+        provider=provider,
+        reference_frame=reference,
+        animation_type=args.animation,
+        total_frames=args.frames,
+        loop=args.loop,
+        character_description=args.description,
+        style=args.style,
+        chromakey_color=chromakey_color,
+        save_dir=anim_dir,
+        platform=args.platform,
+        tiles=args.tiles,
+        subject="object",
+    )
+
+    cleaned_frames = []
+    for i, frame in enumerate(raw_frames, 1):
+        cleaned = _clean_sprite(frame, chromakey_color)
+        cleaned.save(anim_dir / f"frame_{i:02d}.png")
+        cleaned_frames.append(cleaned)
+
+    sheet = assemble_sprite_sheet(cleaned_frames)
+    sheet.save(anim_dir / "sheet.png")
+    print(f"Saved {len(cleaned_frames)} frames + sheet to {anim_dir}")
+
+    # Resize frames to target pixel art sizes
+    if args.sizes:
+        from pixel_magic.resize import parse_sizes, resize_sprite
+
+        sizes = parse_sizes(args.sizes)
+        for size in sizes:
+            size_dir = anim_dir / f"{size}x{size}"
+            size_dir.mkdir(exist_ok=True)
+            resized_frames = []
+            for i, frame in enumerate(cleaned_frames, 1):
+                resized = resize_sprite(frame, size, num_colors=args.num_colors)
+                resized.save(size_dir / f"frame_{i:02d}.png")
+                resized_frames.append(resized)
+            resized_sheet = assemble_sprite_sheet(resized_frames)
+            resized_sheet.save(size_dir / "sheet.png")
+            print(f"  Resized to {size}x{size}")
+        print(f"Saved {len(sizes)} size variants")
 
 
 async def _tile(args: argparse.Namespace) -> None:
@@ -346,7 +488,7 @@ async def _tile(args: argparse.Namespace) -> None:
     )
 
     settings = Settings()
-    chromakey_color = _resolve_tile_chromakey(args.chromakey, settings.chromakey_color)
+    chromakey_color = _resolve_chromakey_pink(args.chromakey)
 
     # Resolve tile labels
     set_name, tile_labels = resolve_tile_labels(
@@ -425,16 +567,9 @@ async def _tile(args: argparse.Namespace) -> None:
     # Extract individual tiles from grid
     tiles = extract_tiles(sheet, tile_labels, cols=grid_cols, slot_size=slot_size)
 
-    # Background removal + cleanup on each tile
-    from pixel_magic.background import remove_background
-    from pixel_magic.cleanup import cleanup_tile
-
+    # Background removal + cleanup + fit on each tile
     for label, tile_img in tiles.items():
-        # Remove chromakey background
-        tile_img = remove_background(tile_img, chromakey_color=chromakey_color)
-        # Clean mask (no outline stripping)
-        tile_img = cleanup_tile(tile_img, chromakey_color=chromakey_color)
-        # Fit to standard bounding box
+        tile_img = _clean_sprite(tile_img, chromakey_color)
         tile_img = fit_tile(tile_img, target_width=64, depth=args.depth)
 
         safe_name = label.replace(" ", "_").replace("/", "_")
@@ -443,21 +578,110 @@ async def _tile(args: argparse.Namespace) -> None:
 
     print(f"Saved {len(tiles)} tiles to {out_dir}")
 
-    # Optional pixel art resize
-    if args.sizes:
-        from pixel_magic.resize import parse_sizes, resize_sprite
+    _resize_sprites(tile_labels, out_dir, args.sizes, args.num_colors)
 
-        sizes = parse_sizes(args.sizes)
-        for size in sizes:
-            size_dir = out_dir / f"{size}x{size}"
-            size_dir.mkdir(exist_ok=True)
-            for label in tile_labels:
-                safe_name = label.replace(" ", "_").replace("/", "_")
-                src = Image.open(out_dir / f"{safe_name}.png").convert("RGBA")
-                resized = resize_sprite(src, size, num_colors=args.num_colors)
-                resized.save(size_dir / f"{safe_name}.png")
-            print(f"  Resized to {size}x{size}")
-        print(f"Saved {len(sizes)} size variants")
+
+async def _object(args: argparse.Namespace) -> None:
+    from pixel_magic.config import Settings
+    from pixel_magic.object import (
+        build_object_canvas,
+        extract_objects,
+        resolve_object_labels,
+    )
+    from pixel_magic.providers.gemini import GeminiProvider
+
+    settings = Settings()
+    chromakey_color = _resolve_chromakey_pink(args.chromakey)
+
+    # Resolve object labels
+    set_name, object_labels = resolve_object_labels(
+        name=args.name,
+        preset=args.preset,
+        custom_names=args.names,
+        variants=args.variants,
+    )
+
+    out_dir = Path(args.output_dir) / "objects" / set_name
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Build canvas with labeled platforms
+    canvas, grid_cols, slot_size, aspect_ratio, image_size = build_object_canvas(
+        object_labels=object_labels,
+        depth=args.depth,
+        chromakey_color=chromakey_color,
+    )
+    grid_rows = math.ceil(len(object_labels) / grid_cols)
+    canvas.save(out_dir / "canvas_input.png")
+
+    print(f"Generating {set_name} objects ({len(object_labels)} objects, depth={args.depth})...")
+    print(f"  Canvas: {canvas.width}x{canvas.height} ({grid_cols}x{grid_rows} grid)")
+    print(f"  Gemini: {aspect_ratio} ratio, {image_size} output")
+
+    provider = GeminiProvider(
+        api_key=settings.google_api_key,
+        model=settings.gemini_image_model,
+    )
+
+    # Gemini pass 1: draw objects on platforms
+    from pixel_magic.prompts import build_object_canvas_prompt
+
+    prompt = build_object_canvas_prompt(
+        object_labels=object_labels,
+        description=args.description,
+        style=args.style,
+        max_colors=args.max_colors,
+        chromakey_color=chromakey_color,
+        depth=args.depth,
+        grid_cols=grid_cols,
+        grid_rows=grid_rows,
+    )
+
+    print("  Generating objects...")
+    result = await provider.generate_with_images(
+        prompt=prompt,
+        images=[canvas],
+        aspect_ratio=aspect_ratio,
+        image_size=image_size,
+    )
+    result.image.save(out_dir / "raw.png")
+    print(f"  Raw: {result.image.width}x{result.image.height}")
+
+    # Gemini pass 2: remove platforms and labels
+    from pixel_magic.prompts import build_object_cleanup_prompt
+
+    cleanup_prompt = build_object_cleanup_prompt(
+        len(object_labels), chromakey_color,
+        grid_cols=grid_cols,
+        grid_rows=grid_rows,
+    )
+    print("  Removing platforms...")
+    cleaned = await provider.generate_with_images(
+        prompt=cleanup_prompt,
+        images=[result.image],
+        aspect_ratio=aspect_ratio,
+        image_size=image_size,
+    )
+    cleaned.image.save(out_dir / "sheet_cleaned.png")
+
+    # Resize output to match canvas if Gemini changed dimensions
+    sheet = cleaned.image
+    if sheet.size != canvas.size:
+        sheet = sheet.resize(canvas.size, Image.NEAREST)
+
+    # Extract individual objects from grid
+    objects = extract_objects(sheet, object_labels, cols=grid_cols, slot_size=slot_size)
+
+    # Background removal + cleanup on each object
+    for label, obj_img in objects.items():
+        obj_img = _clean_sprite(obj_img, chromakey_color)
+
+        safe_name = label.replace(" ", "_").replace("/", "_")
+        obj_img.save(out_dir / f"{safe_name}.png")
+        print(f"  {label}: {obj_img.width}x{obj_img.height}")
+
+    print(f"Saved {len(objects)} objects to {out_dir}")
+
+    _resize_sprites(object_labels, out_dir, args.sizes, args.num_colors)
 
 
 def main() -> None:
@@ -472,9 +696,16 @@ def main() -> None:
         asyncio.run(_generate(args))
     elif args.command == "animate":
         asyncio.run(_animate(args))
+    elif args.command == "animate-object":
+        asyncio.run(_animate_object(args))
     elif args.command == "tile":
         try:
             asyncio.run(_tile(args))
+        except ValueError as exc:
+            parser.error(str(exc))
+    elif args.command == "object":
+        try:
+            asyncio.run(_object(args))
         except ValueError as exc:
             parser.error(str(exc))
 

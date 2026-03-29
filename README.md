@@ -40,11 +40,30 @@ pixel-magic tile \
   --sizes 32,64
 ```
 
+Generate world objects:
+
+```bash
+pixel-magic object --preset forest
+pixel-magic object --name torch --variants 4
+```
+
+Animate an existing object:
+
+```bash
+pixel-magic animate-object \
+  --set forest \
+  --name oak_tree \
+  --animation sway \
+  --frames 5
+```
+
 ## How It Works
 
 - `generate` builds an isometric platform canvas, sends it to Gemini, removes the guides, then extracts per-view sprites.
 - `animate` uses an existing character frame as reference and generates a horizontal sprite sheet.
 - `tile` builds labeled diamond canvases so each slot stays bound to the intended material, then strips those labels in a cleanup pass.
+- `object` places labeled platforms on a canvas, Gemini draws objects on them, a cleanup pass removes the platforms.
+- `animate-object` takes an existing object as reference and generates animation frames (sway, flicker, burn, pulse, open, bob, spin).
 - Optional resizing uses [proper-pixel-art](https://github.com/KennethJAllen/proper-pixel-art) to convert high-resolution AI output into true pixel art sizes.
 
 ## Current Caveats
@@ -68,10 +87,11 @@ The `tile` command uses pink chromakey by default unless you override it with `-
 
 ## Docs
 
-- CLI reference: [`docs/cli.md`](/Users/bedirt/Documents/Github/pixel-magic/docs/cli.md)
-- Process overview: [`docs/process.md`](/Users/bedirt/Documents/Github/pixel-magic/docs/process.md)
-- Generation research notes: [`docs/research/sprite-generation.md`](/Users/bedirt/Documents/Github/pixel-magic/docs/research/sprite-generation.md)
-- Background removal research: [`docs/research/background-removal.md`](/Users/bedirt/Documents/Github/pixel-magic/docs/research/background-removal.md)
+- CLI reference: [`docs/cli.md`](docs/cli.md)
+- Process overview: [`docs/process.md`](docs/process.md)
+- Generation research notes: [`docs/research/sprite-generation.md`](docs/research/sprite-generation.md)
+- Background removal research: [`docs/research/background-removal.md`](docs/research/background-removal.md)
+- Animation research: [`docs/research/animation.md`](docs/research/animation.md)
 
 ## License
 
