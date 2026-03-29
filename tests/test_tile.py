@@ -11,11 +11,11 @@ from pixel_magic.tile import build_tile_canvas
 
 def test_tile_defaults_to_pink_chromakey():
     """Tile generation should default to pink to preserve green and blue terrain."""
-    from pixel_magic.__main__ import _resolve_tile_chromakey
+    from pixel_magic.__main__ import _resolve_chromakey_pink
 
-    assert _resolve_tile_chromakey(args_chromakey=None, settings_chromakey="green") == "pink"
-    assert _resolve_tile_chromakey(args_chromakey=None, settings_chromakey="blue") == "pink"
-    assert _resolve_tile_chromakey(args_chromakey="green", settings_chromakey="blue") == "green"
+    assert _resolve_chromakey_pink(args_chromakey=None) == "pink"
+    assert _resolve_chromakey_pink(args_chromakey="green") == "green"
+    assert _resolve_chromakey_pink(args_chromakey="blue") == "blue"
 
 
 def test_tile_custom_theme_requires_types(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]):
@@ -41,7 +41,7 @@ def test_tile_variants_must_be_positive(monkeypatch: pytest.MonkeyPatch, capsys:
         main()
 
     assert excinfo.value.code == 2
-    assert "--variants must be >= 1" in capsys.readouterr().err
+    assert "value must be >= 1" in capsys.readouterr().err
 
 
 def test_three_tile_canvas_avoids_empty_grid_cells():

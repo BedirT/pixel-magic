@@ -15,7 +15,7 @@ def _positive_int(value: str) -> int:
     """argparse type that rejects zero and negative integers."""
     ivalue = int(value)
     if ivalue < 1:
-        raise argparse.ArgumentTypeError("--variants must be >= 1")
+        raise argparse.ArgumentTypeError("value must be >= 1")
     return ivalue
 
 

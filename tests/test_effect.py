@@ -33,7 +33,7 @@ def test_effect_frames_must_be_positive(monkeypatch: pytest.MonkeyPatch, capsys:
         main()
 
     assert excinfo.value.code == 2
-    assert "--variants must be >= 1" in capsys.readouterr().err
+    assert "value must be >= 1" in capsys.readouterr().err
 
 
 def test_effect_custom_preset_requires_names(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]):

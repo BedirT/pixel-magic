@@ -35,6 +35,9 @@ def resolve_effect_labels(
     if name:
         return name, [name]
 
+    if preset is None:
+        raise ValueError("Either --name or --preset is required")
+
     if preset == "custom":
         labels = [t.strip() for t in custom_names.split(",") if t.strip()]
         if not labels:
