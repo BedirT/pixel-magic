@@ -1,0 +1,18 @@
+{
+  "task": "cleanup",
+  "purpose": "remove_platforms_from_objects",
+  "input": {
+    "description": "A pixel art sheet with {{ object_count }} isometric world objects {{ layout_desc }} on stone platforms. Each platform has a text label above it."
+  },
+  "action": {
+    "remove": ["stone platforms", "text labels"],
+    "replace_with": "{{ chromakey_color }} ({{ hex_color }}) background"
+  },
+  "rules": [
+    "Keep the objects EXACTLY as they are — same shapes, colors, shading, pixel art style",
+    "Do NOT modify any object pixels — only remove the stone platforms and text labels",
+    "Fill where the platforms and labels were with solid {{ chromakey_color }} ({{ hex_color }})",
+    "The output must be the same dimensions as the input",
+    "Maintain the same {{ layout_desc }} layout"
+  ]
+}

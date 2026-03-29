@@ -1,0 +1,45 @@
+{
+  "image_type": "sprite_sheet",
+  "purpose": "vfx_effect_animation",
+  "layout": {
+    "arrangement": "{{ layout_desc }}",
+    "total_frames": {{ total_frames }},
+    "description": "An empty sprite sheet template with {{ layout_desc }}, on a {{ chromakey_color }} ({{ hex_color }}) background. Each slot has a small white number showing its frame position.",
+    "background": {
+      "color": "{{ chromakey_color }}",
+      "hex": "{{ hex_color }}"
+    }
+  },
+  "effect": {
+    "name": "{{ effect_name }}",
+    "description": "{{ anim_desc }}"
+    {% if effect_description %}
+    ,"detail": "{{ effect_description }}"
+    {% endif %}
+  },
+  "animation": {
+    {% if loop %}
+    "looping": true,
+    "instruction": "This is a LOOPING animation with {{ total_frames }} frames. Frame 1 and frame {{ total_frames }} must show the same state so the animation cycles seamlessly. Fill all {{ total_frames }} slots with frames that progress through the full motion and return to the start."
+    {% else %}
+    "looping": false,
+    "instruction": "This is a one-shot animation with {{ total_frames }} frames. Frame 1 is the beginning of the effect, frame {{ total_frames }} is the end. The effect should build up, peak, and dissipate across the full sequence."
+    {% endif %}
+  },
+  "action": "Fill EVERY slot with a frame of {{ anim_desc }}",
+  "rules": [
+    "Draw one animation frame per slot — paint OVER the frame numbers completely",
+    "Maintain consistent color palette and art style across all frames",
+    "Each slot must show a DIFFERENT state progressing through the animation",
+    "Follow the numbered slot order (1, 2, 3...) for correct animation sequence",
+    "The effect should be centered in each frame",
+    "Fill the entire slot area with {{ chromakey_color }} ({{ hex_color }}) background around the effect — no leftover guide marks"
+  ],
+  "art_details": {
+    "style": "{{ style }}",
+    "perspective": "front-facing 2D view (not isometric — this is a VFX overlay)",
+    "pixel_art": "hard pixel edges, no anti-aliasing, no smoothing",
+    "outline": "1-pixel black outline on all effect elements (particles, energy shapes, flames, etc.)",
+    "palette": "same color palette across all frames"
+  }
+}

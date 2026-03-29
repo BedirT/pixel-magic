@@ -1,0 +1,18 @@
+{
+  "task": "cleanup",
+  "purpose": "remove_guides_from_character_sheet",
+  "input": {
+    "description": "A pixel art character sheet with {{ view_count }} character views {{ layout_desc }} on stone platforms. Each platform has a direction label in the corner."
+  },
+  "action": {
+    "remove": ["stone platforms", "direction labels"],
+    "replace_with": "solid {{ chromakey_color }} ({{ hex_color }}) background"
+  },
+  "rules": [
+    "Keep the characters EXACTLY as they are — same proportions, colors, poses, pixel art style",
+    "Do NOT modify any character pixels — only remove the stone platforms and corner labels",
+    "Fill where the platforms and labels were with solid {{ chromakey_color }} ({{ hex_color }})",
+    "The output must be the same dimensions as the input",
+    "Maintain the same {{ layout_desc }} layout"
+  ]
+}

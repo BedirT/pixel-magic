@@ -6,13 +6,7 @@ import math
 
 from PIL import Image
 
-from pixel_magic.animate import (
-    _draw_label,
-    _grid_layout,
-    _pick_image_size,
-    _snap_gemini_ratio,
-    extract_frames,
-)
+from pixel_magic.canvas import draw_label, extract_frames, grid_layout, pick_image_size, snap_gemini_ratio
 from pixel_magic.platform import create_platform
 
 # Predefined object set presets
@@ -86,8 +80,8 @@ def build_object_canvas(
     cols, rows = _object_grid_layout(n_objects, slot_w, slot_h)
 
     raw_w, raw_h = slot_w * cols, slot_h * rows
-    aspect_ratio, canvas_w, canvas_h = _snap_gemini_ratio(raw_w, raw_h)
-    image_size = _pick_image_size(max(canvas_w, canvas_h))
+    aspect_ratio, canvas_w, canvas_h = snap_gemini_ratio(raw_w, raw_h)
+    image_size = pick_image_size(max(canvas_w, canvas_h))
 
     canvas = Image.new("RGBA", (canvas_w, canvas_h), (*fill, 255))
 
@@ -112,7 +106,7 @@ def build_object_canvas(
         canvas.paste(scaled_platform, (px, py), scaled_platform)
 
         # Draw label centered above platform
-        _draw_label(canvas, label, cell_x + cell_w // 2, cell_y + 4, cell_w)
+        draw_label(canvas, label, cell_x + cell_w // 2, cell_y + 4, cell_w)
 
     return canvas, cols, (cell_w, cell_h), aspect_ratio, image_size
 
@@ -121,7 +115,7 @@ def _object_grid_layout(n_objects: int, slot_w: int, slot_h: int) -> tuple[int, 
     """Prefer exact small layouts to avoid unlabeled empty cells."""
     if n_objects <= 3:
         return n_objects, 1
-    return _grid_layout(n_objects, slot_w, slot_h)
+    return grid_layout(n_objects, slot_w, slot_h)
 
 
 def extract_objects(

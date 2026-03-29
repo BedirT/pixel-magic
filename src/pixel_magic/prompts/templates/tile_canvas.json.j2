@@ -1,0 +1,46 @@
+{
+  "image_type": "pixel_art",
+  "style": "isometric",
+  "purpose": "terrain_tileset",
+  "reference_image": {
+    "description": "The attached image shows exactly {{ tile_count }} labeled isometric diamond outlines{{ layout_desc }} on {{ chromakey_color }} ({{ hex_color }}) background",
+    "usage": "Each diamond outline shows exactly where to draw the terrain tile. Fill each diamond with the terrain texture labeled above it. Do not invent extra tiles. Any unlabeled or outline-free area must remain solid {{ chromakey_color }} ({{ hex_color }}) background."
+  },
+  "background": {
+    "type": "chromakey",
+    "rule": "{{ background_rule }}",
+    "instruction": "{{ background_instruction }}"
+  },
+  "tiles": [
+    {% for tile in tiles %}
+    {
+      "slot": {{ tile.slot }},
+      "label": "{{ tile.label }}",
+      "terrain": "{{ tile.terrain }}"
+    }{{ "," if not loop.last }}
+    {% endfor %}
+  ],
+  "shape": {
+    {% if depth > 0 %}
+    "type": "an isometric diamond with visible side faces (3D depth)",
+    "fill_rule": "Fill the diamond top face with the terrain texture. Draw appropriate side faces below the diamond edges to give the tile depth and volume."
+    {% else %}
+    "type": "a flat isometric diamond (top face only)",
+    "fill_rule": "Fill only the diamond top face with the terrain texture. No side faces."
+    {% endif %}
+  },
+  "art_details": {
+    "pixel_density": "medium",
+    "shading": "simple 2-3 tone stepped shading per color area",
+    "outline": "1-pixel black (#000000) outline around the entire tile perimeter",
+    "anti_aliasing": "none — every edge is a hard pixel step",
+    "perspective": "isometric 3/4 top-down (~30 degrees from above)",
+    "max_colors": {{ max_colors }},
+    "style_reference": "{{ style }}",
+    "lighting": "consistent upper-left light source across all tiles"
+  },
+  "tiling_rules": {
+    "seamless": "tile edges should be designed to connect smoothly when placed adjacent in an isometric grid",
+    "consistency": "all tiles must share the same art style, palette warmth, and level of detail"
+  }
+}

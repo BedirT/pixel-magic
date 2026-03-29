@@ -23,6 +23,7 @@ Bare-bones CLI tool for pixel art generation.
 - [ ] Atlas packing (combine frames into sprite atlas)
 - [ ] Broader end-to-end / golden-image coverage for generated outputs
 - [ ] Resolve the remaining full-suite collection failures in contour/resize tests
+- [ ] Generate showcase assets for Ember Depths demo (requires Gemini API)
 
 ## Known Limitations
 
@@ -40,5 +41,7 @@ Bare-bones CLI tool for pixel art generation.
 - **Pink chromakey default for non-character assets** — tile, object, animate-object, and effect flows default to pink so green foliage and blue water/ice/fire-adjacent colors survive extraction. Character generation still defaults to green (from `.env`).
 - **Flood-fill chromakey for background removal** — replaced rembg (U2-Net) which produced soft alpha (98.7% semi-transparent pixels). Flood fill from image borders with channel-ratio detection produces binary alpha by construction.
 - **proper-pixel-art for resize** — AI sprites look pixelated but aren't real pixel art. proper-pixel-art detects the actual pixel grid via Canny edge detection + Hough line transform, then samples dominant color per cell.
-- **JSON prompts** — models respond well to structured JSON describing the desired image. Better consistency than prose prompts.
+- **JSON prompts** — models respond well to structured JSON describing the desired image. Better consistency than prose prompts. All prompts (including animation/cleanup) are now JSON-structured Jinja2 templates.
+- **Jinja2 prompt templates** — prompts live as standalone `.json.j2` files in `prompts/templates/`, making them easy to read, edit, and iterate on independently from Python code. The `prompts/__init__.py` provides the same function signatures as before for backward compatibility.
+- **Shared canvas utilities** — grid layout, frame extraction, and label drawing live in `canvas.py`, imported by animate, tile, object, and effect modules instead of being private functions in animate.py.
 - **CLI over MCP** — simpler, no server overhead, easy to script.
