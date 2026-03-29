@@ -15,7 +15,7 @@ def _positive_int(value: str) -> int:
     """argparse type that rejects zero and negative integers."""
     ivalue = int(value)
     if ivalue < 1:
-        raise argparse.ArgumentTypeError("--variants must be >= 1")
+        raise argparse.ArgumentTypeError("value must be >= 1")
     return ivalue
 
 
@@ -37,6 +37,31 @@ def _clean_sprite(image: Image.Image, chromakey_color: str) -> Image.Image:
     image = remove_background(image, chromakey_color=chromakey_color)
     image = cleanup_sprite(image, chromakey_color=chromakey_color)
     return add_outline(image)
+
+
+def _clean_tile(image: Image.Image, chromakey_color: str) -> Image.Image:
+    """Post-processing for tiles: remove background, clean mask (no outline strip)."""
+    from pixel_magic.background import remove_background
+    from pixel_magic.cleanup import cleanup_tile
+
+    image = remove_background(image, chromakey_color=chromakey_color)
+    return cleanup_tile(image, chromakey_color=chromakey_color)
+
+
+def _normalize_animation_frames(frames: list[Image.Image]) -> list[Image.Image]:
+    """Pad all frames to the same size with bottom-center anchoring."""
+    if not frames:
+        return frames
+    max_w = max(f.width for f in frames)
+    max_h = max(f.height for f in frames)
+    normalized = []
+    for f in frames:
+        canvas = Image.new("RGBA", (max_w, max_h), (0, 0, 0, 0))
+        x = (max_w - f.width) // 2
+        y = max_h - f.height
+        canvas.paste(f, (x, y), f)
+        normalized.append(canvas)
+    return normalized
 
 
 def _resize_sprites(
@@ -188,6 +213,25 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     obj.add_argument("--num-colors", type=int, default=None, help="Palette size for resized objects")
 
+    eff = sub.add_parser("effect", help="Generate animated VFX effects (explosions, smoke, magic, etc.)")
+    eff_mode = eff.add_mutually_exclusive_group(required=True)
+    eff_mode.add_argument("--name", help="Single effect name (e.g., explosion, fire, magic_circle)")
+    eff_mode.add_argument("--preset", help="Effect preset group (e.g., combat, magic, nature, status, custom)")
+    eff.add_argument("--names", default="", help="Custom effect names for --preset custom (comma-separated)")
+    eff.add_argument("--description", default="", help="Optional effect description (auto-inferred from name if empty)")
+    eff.add_argument("--frames", type=_positive_int, default=6, help="Total animation frames (default: 6, minimum: 2)")
+    eff.add_argument("--loop", action="store_true", default=None, help="Force looping animation")
+    eff.add_argument("--no-loop", dest="loop", action="store_false", help="Force one-shot animation")
+    eff.add_argument("--output-dir", default="output", help="Output directory (default: output)")
+    eff.add_argument("--style", default="16-bit SNES RPG style", help="Art style")
+    eff.add_argument("--max-colors", type=int, default=16, help="Max color count (default: 16)")
+    eff.add_argument("--chromakey", choices=["green", "blue", "pink"], default=None, help="Chromakey color (default: pink)")
+    eff.add_argument(
+        "--sizes", default="",
+        help='Resize frames to pixel art sizes (e.g. "32,64" or "all")',
+    )
+    eff.add_argument("--num-colors", type=int, default=None, help="Palette size for resized frames")
+
     return parser
 
 
@@ -254,7 +298,8 @@ async def _generate(args: argparse.Namespace) -> None:
             print(f"  {label}: {cleaned.width}x{cleaned.height}")
         print(f"Extracted {len(sprites)} sprites to {views_dir}")
 
-        _resize_sprites(view_labels, views_dir, args.sizes, args.num_colors)
+        actual_labels = [view_labels[i] if i < len(view_labels) else f"view_{i}" for i in range(len(sprites))]
+        _resize_sprites(actual_labels, views_dir, args.sizes, args.num_colors)
     else:
         print("Warning: could not extract individual sprites from sheet")
 
@@ -387,11 +432,10 @@ async def _animate(args: argparse.Namespace) -> None:
     )
 
     # Clean each frame (background removal + outline strip/re-add)
-    cleaned_frames = []
-    for i, frame in enumerate(raw_frames, 1):
-        cleaned = _clean_sprite(frame, chromakey_color)
-        cleaned.save(anim_dir / f"frame_{i:02d}.png")
-        cleaned_frames.append(cleaned)
+    cleaned_frames = [_clean_sprite(frame, chromakey_color) for frame in raw_frames]
+    cleaned_frames = _normalize_animation_frames(cleaned_frames)
+    for i, frame in enumerate(cleaned_frames, 1):
+        frame.save(anim_dir / f"frame_{i:02d}.png")
 
     sheet = assemble_sprite_sheet(cleaned_frames)
     sheet.save(anim_dir / "sheet.png")
@@ -448,11 +492,10 @@ async def _animate_object(args: argparse.Namespace) -> None:
         subject="object",
     )
 
-    cleaned_frames = []
-    for i, frame in enumerate(raw_frames, 1):
-        cleaned = _clean_sprite(frame, chromakey_color)
-        cleaned.save(anim_dir / f"frame_{i:02d}.png")
-        cleaned_frames.append(cleaned)
+    cleaned_frames = [_clean_sprite(frame, chromakey_color) for frame in raw_frames]
+    cleaned_frames = _normalize_animation_frames(cleaned_frames)
+    for i, frame in enumerate(cleaned_frames, 1):
+        frame.save(anim_dir / f"frame_{i:02d}.png")
 
     sheet = assemble_sprite_sheet(cleaned_frames)
     sheet.save(anim_dir / "sheet.png")
@@ -475,6 +518,141 @@ async def _animate_object(args: argparse.Namespace) -> None:
             resized_sheet.save(size_dir / "sheet.png")
             print(f"  Resized to {size}x{size}")
         print(f"Saved {len(sizes)} size variants")
+
+
+async def _effect(args: argparse.Namespace) -> None:
+    from pixel_magic.animate import (
+        assemble_sprite_sheet,
+        build_empty_canvas,
+        extract_frames,
+    )
+    from pixel_magic.config import Settings
+    from pixel_magic.effect import (
+        enforce_loop_closure,
+        infer_loop_default,
+        resolve_effect_labels,
+    )
+    from pixel_magic.prompts import (
+        build_effect_animation_prompt,
+        build_effect_cleanup_prompt,
+    )
+    from pixel_magic.providers.gemini import GeminiProvider
+
+    settings = Settings()
+    chromakey_color = _resolve_chromakey_pink(args.chromakey)
+
+    set_name, effect_labels = resolve_effect_labels(
+        name=args.name, preset=args.preset, custom_names=args.names,
+    )
+
+    if args.frames < 2:
+        raise ValueError("Animations need at least 2 frames")
+
+    provider = GeminiProvider(
+        api_key=settings.google_api_key,
+        model=settings.gemini_image_model,
+    )
+
+    for effect_name in effect_labels:
+        # Determine loop behavior: explicit flag > auto-detect from effect name
+        loop = args.loop if args.loop is not None else infer_loop_default(effect_name)
+        description = args.description or effect_name.replace("_", " ")
+
+        if loop and args.frames < 3:
+            raise ValueError("Looping animations need at least 3 frames")
+
+        # Output directory: effects/{name}/ or effects/{preset}/{name}/
+        safe_name = effect_name.replace(" ", "_").replace("/", "_")
+        if args.preset:
+            eff_dir = Path(args.output_dir) / "effects" / set_name / safe_name
+        else:
+            eff_dir = Path(args.output_dir) / "effects" / safe_name
+        eff_dir.mkdir(parents=True, exist_ok=True)
+
+        print(f"Generating {effect_name} effect ({args.frames} frames, {'loop' if loop else 'one-shot'})...")
+
+        # Build empty grid canvas (no reference frame)
+        canvas, grid_cols, slot_size, aspect_ratio, image_size = build_empty_canvas(
+            total_frames=args.frames,
+            chromakey_color=chromakey_color,
+        )
+        grid_rows = math.ceil(args.frames / grid_cols)
+        canvas.save(eff_dir / "canvas_input.png")
+
+        print(f"  Canvas: {canvas.width}x{canvas.height} ({grid_cols}x{grid_rows} grid, {args.frames} frames)")
+        print(f"  Gemini: {aspect_ratio} ratio, {image_size} output")
+
+        # Single Gemini call — fill all slots
+        prompt = build_effect_animation_prompt(
+            effect_name=effect_name,
+            total_frames=args.frames,
+            effect_description=description,
+            style=args.style,
+            chromakey_color=chromakey_color,
+            loop=loop,
+            grid_cols=grid_cols,
+            grid_rows=grid_rows,
+        )
+
+        print("  Generating animation...")
+        result = await provider.generate_with_images(
+            prompt=prompt,
+            images=[canvas],
+            aspect_ratio=aspect_ratio,
+            image_size=image_size,
+        )
+        result.image.save(eff_dir / "sheet_raw.png")
+
+        cleanup_prompt = build_effect_cleanup_prompt(
+            args.frames,
+            chromakey_color,
+            grid_cols=grid_cols,
+            grid_rows=grid_rows,
+        )
+        print("  Removing frame numbers...")
+        cleaned = await provider.generate_with_images(
+            prompt=cleanup_prompt,
+            images=[result.image],
+            aspect_ratio=aspect_ratio,
+            image_size=image_size,
+        )
+        cleaned.image.save(eff_dir / "sheet_cleaned.png")
+
+        # Resize output to match canvas dims if Gemini changed them
+        sheet = cleaned.image
+        if sheet.size != canvas.size:
+            sheet = sheet.resize(canvas.size, Image.NEAREST)
+
+        # Extract frames from grid
+        raw_frames = extract_frames(sheet, args.frames, cols=grid_cols, slot_size=slot_size)
+
+        cleaned_frames = [_clean_sprite(frame, chromakey_color) for frame in raw_frames]
+        cleaned_frames = _normalize_animation_frames(cleaned_frames)
+        cleaned_frames = enforce_loop_closure(cleaned_frames, loop=loop)
+        for i, frame in enumerate(cleaned_frames, 1):
+            frame.save(eff_dir / f"frame_{i:02d}.png")
+
+        anim_sheet = assemble_sprite_sheet(cleaned_frames)
+        anim_sheet.save(eff_dir / "sheet.png")
+        print(f"Saved {len(cleaned_frames)} frames + sheet to {eff_dir}")
+
+        # Resize frames to target pixel art sizes
+        if args.sizes:
+            from pixel_magic.resize import parse_sizes, resize_sprite
+
+            sizes = parse_sizes(args.sizes)
+            for size in sizes:
+                size_dir = eff_dir / f"{size}x{size}"
+                size_dir.mkdir(exist_ok=True)
+                resized_frames = []
+                for i, frame in enumerate(cleaned_frames, 1):
+                    resized = resize_sprite(frame, size, num_colors=args.num_colors)
+                    resized.save(size_dir / f"frame_{i:02d}.png")
+                    resized_frames.append(resized)
+                resized_sheet = assemble_sprite_sheet(resized_frames)
+                resized_sheet.save(size_dir / "sheet.png")
+                print(f"  Resized to {size}x{size}")
+            print(f"Saved {len(sizes)} size variants")
 
 
 async def _tile(args: argparse.Namespace) -> None:
@@ -569,7 +747,7 @@ async def _tile(args: argparse.Namespace) -> None:
 
     # Background removal + cleanup + fit on each tile
     for label, tile_img in tiles.items():
-        tile_img = _clean_sprite(tile_img, chromakey_color)
+        tile_img = _clean_tile(tile_img, chromakey_color)
         tile_img = fit_tile(tile_img, target_width=64, depth=args.depth)
 
         safe_name = label.replace(" ", "_").replace("/", "_")
@@ -706,6 +884,11 @@ def main() -> None:
     elif args.command == "object":
         try:
             asyncio.run(_object(args))
+        except ValueError as exc:
+            parser.error(str(exc))
+    elif args.command == "effect":
+        try:
+            asyncio.run(_effect(args))
         except ValueError as exc:
             parser.error(str(exc))
 

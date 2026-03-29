@@ -1,88 +1,122 @@
 # CLI Reference
 
+`pixel-magic` is a command-line tool for generating pixel art characters, animations, tiles, objects, and simple VFX with Gemini.
+
 ## Installation
+
+Install project dependencies:
 
 ```bash
 uv sync
 ```
 
-## Commands
+Run commands with the installed entry point:
 
-### `pixel-magic generate`
+```bash
+pixel-magic <command> [options]
+```
 
-Generate a multi-view isometric pixel art character sprite sheet.
+## Output Conventions
+
+By default, commands write into `output/`.
+
+- Character generation writes to `output/<name>/`
+- Character animation writes to `output/<name>/animations/<animation>/`
+- Object generation writes to `output/objects/<set-name>/`
+- Object animation writes to `output/objects/<set-name>/animations/<object-name>/<animation>/`
+- Tile generation writes to `output/tiles/<set-name>/`
+- Effect generation writes to `output/effects/<effect-name>/` or `output/effects/<preset>/<effect-name>/`
+
+Most canvas-based flows save intermediate artifacts for debugging:
+
+- `canvas_input.png` — the guide canvas sent to Gemini
+- `raw.png` or `sheet_raw.png` — the first Gemini output
+- `sheet_cleaned.png` — the cleanup-pass output when the pipeline removes guides
+- `sheet.png` — the final assembled output after local cleanup
+
+## `pixel-magic generate`
+
+Generate a multi-view isometric character sheet.
 
 ```bash
 pixel-magic generate --name <name> --description "<description>" [options]
 ```
 
-#### Required Arguments
+### Required Arguments
 
 | Argument | Description |
 |---|---|
-| `--name <name>` | Character name. Used as the output folder name under the output directory. Example: `--name "fire-mage"` creates `output/fire-mage/`. |
-| `--description "<desc>"` | Character description in natural language. Be specific about clothing, weapons, colors, and distinguishing features. The more detail, the better the result. |
+| `--name <name>` | Character name. Used as the output folder under the output directory. |
+| `--description "<desc>"` | Natural-language character description. Include silhouette, clothing, weapons, colors, and notable details. |
 
-#### Optional Arguments
+### Optional Arguments
 
 | Argument | Default | Description |
 |---|---|---|
-| `--directions {4,8}` | `4` | Number of facing directions. **4-direction** generates 2 views (front-left 3/4, back-right 3/4). **8-direction** generates 5 views (back, back-right, right, front-right, front). The remaining directions are derived by mirroring. |
-| `--tiles {1,4,9}` | `1` | Character tile footprint: 1 (default human-sized), 4 (2×2 — larger creature), 9 (3×3 — boss/mount). Larger tiles give the model more platform space per view. |
-| `--output-dir <path>` | `output` | Root output directory. Character output is saved to `<output-dir>/<name>/`. |
-| `--resolution <WxH>` | `64x64` | Target resolution per individual view in the prompt. This is a hint to the model — actual output size depends on the model. |
-| `--max-colors <n>` | `16` | Maximum color count for the pixel art palette. Lower values produce more retro-looking sprites. |
-| `--style "<style>"` | `16-bit SNES RPG style` | Art style description included in the prompt. |
-| `--palette-hint "<hint>"` | *(none)* | Optional color palette guidance. Example: `--palette-hint "warm earth tones, no blue"`. |
+| `--directions {4,8}` | `4` | Direction set. `4` produces 2 canonical views. `8` produces 5 canonical views. |
+| `--tiles {1,4,9}` | `1` | Platform footprint. Larger values give the model more room for large creatures or mounts. |
+| `--output-dir <path>` | `output` | Root output directory. |
+| `--resolution <WxH>` | `64x64` | Prompt hint for per-view resolution. |
+| `--max-colors <n>` | `16` | Maximum color count in the prompt. |
+| `--style "<style>"` | `16-bit SNES RPG style` | Style description passed to the prompt. |
+| `--palette-hint "<hint>"` | *(none)* | Extra palette guidance. |
+| `--sizes "<list>"` | *(none)* | Resize extracted sprites to `16,32,48,64,96,128,256` or `all`. |
+| `--num-colors <n>` | *(preserve original)* | Palette size for resized sprites. |
+| `--chromakey {green,blue}` | from `.env` | Override the default chromakey used for background removal. |
+| `--no-platform` | platform mode enabled | Skip platform-guided generation and use a text-only prompt instead. |
+| `--char-ratio <float>` | `1.2` | Character height estimate relative to platform width. Used only in platform mode. |
 
-#### Examples
+### Examples
 
 Basic 4-direction character:
+
 ```bash
 pixel-magic generate \
-  --name "knight" \
+  --name knight \
   --description "A medieval knight with silver armor, blue cape, and a longsword"
 ```
 
-8-direction with larger footprint:
+Large 8-direction creature:
+
 ```bash
 pixel-magic generate \
-  --name "fire-mage" \
+  --name fire-mage \
   --description "A fire mage in red robes with a glowing staff and flame effects" \
   --directions 8 \
   --tiles 4
 ```
 
-Custom style and palette:
+Text-only generation with custom palette guidance:
+
 ```bash
 pixel-magic generate \
-  --name "cyberpunk-hacker" \
+  --name cyberpunk-hacker \
   --description "A cyberpunk hacker with neon visor, black trenchcoat, and holographic keyboard" \
   --style "GBA-era pixel art" \
   --max-colors 32 \
-  --palette-hint "neon green, dark purple, black, electric blue"
+  --palette-hint "neon green, dark purple, black, electric blue" \
+  --no-platform
 ```
 
-#### Output
+### Output
 
-```
+```text
 output/<name>/
-├── raw.png           # Untouched model output (always)
-├── sheet.png         # Background-removed version
-├── views/            # Cleaned canonical sprites (binary alpha, mask hardened)
+├── raw.png                 # First Gemini output
+├── sheet.png               # Background removed
+├── canvas_input.png        # Platform-guided input canvas (platform mode only)
+├── sheet_cleaned.png       # Guide cleanup output (platform mode only)
+├── views/
 │   ├── front_left.png
 │   └── back_right.png
-└── views_raw/        # Raw extracted sprites before cleanup (for debugging)
+└── views_raw/
     ├── front_left.png
     └── back_right.png
 ```
 
-- **raw.png** — Exactly what the model returned, zero processing. Gemini images have a solid green (#00FF00) background.
-- **sheet.png** — Background removed via chromakey flood fill from the image borders, then boundary despill clamps leftover key color on sprite edges.
-- **views/** — Cleaned sprites with binary alpha (0 or 255 only). Chromakey-dominant fringe removed, small islands/holes cleaned. These are the canonical high-res sprites.
-- **views_raw/** — Raw extracted sprites before cleanup, preserved for debugging and comparison.
+If you pass `--sizes`, resized variants are written under `views/<size>x<size>/`.
 
-### `pixel-magic animate`
+## `pixel-magic animate`
 
 Generate animation frames for an existing character sprite.
 
@@ -90,59 +124,67 @@ Generate animation frames for an existing character sprite.
 pixel-magic animate --name <name> --animation <type> [options]
 ```
 
-#### Required Arguments
+### Required Arguments
 
 | Argument | Description |
 |---|---|
-| `--name <name>` | Character name. Must have existing sprites in `output/<name>/views/`. |
+| `--name <name>` | Character name. The command expects a source sprite in `output/<name>/views/` unless `--reference` is provided. |
 
-#### Optional Arguments
+### Optional Arguments
 
 | Argument | Default | Description |
 |---|---|---|
-| `--animation <type>` | `walk` | Animation type: `walk`, `idle`, `attack`, `run`, `cast` |
-| `--description "<desc>"` | *(none)* | Character description (helps model consistency) |
-| `--frames <n>` | `5` | Total frames in the animation cycle |
-| `--loop` / `--no-loop` | `--loop` | Looping animation (first=last frame) or one-shot |
-| `--direction <dir>` | `front_right` | Which extracted view to animate |
-| `--reference <path>` | *(auto)* | Custom reference frame path (overrides auto-detect) |
-| `--platform` / `--no-platform` | `--no-platform` | Add isometric platform tiles for perspective |
-| `--tiles {1,4,9}` | `1` | Platform tile count: 1 (single), 4 (2×2 grid), 9 (3×3 grid). More tiles = more room for action poses. Implies `--platform`. |
-| `--output-dir <path>` | `output` | Root output directory |
-| `--chromakey {green,blue}` | from `.env` | Chromakey color |
-| `--style "<style>"` | `16-bit SNES RPG style` | Art style |
+| `--animation <type>` | `walk` | Animation name. Common values: `walk`, `idle`, `attack`, `run`, `cast`. |
+| `--description "<desc>"` | *(none)* | Extra character description to improve consistency. |
+| `--frames <n>` | `5` | Total number of frames in the cycle. |
+| `--loop` / `--no-loop` | `--loop` | Generate a looping or one-shot sequence. |
+| `--direction <dir>` | `front_right` | Which extracted character view to animate. |
+| `--reference <path>` | *(auto-detect)* | Use a custom reference image instead of the generated view. |
+| `--output-dir <path>` | `output` | Root output directory. |
+| `--chromakey {green,blue}` | from `.env` | Override the chromakey used during cleanup. |
+| `--style "<style>"` | `16-bit SNES RPG style` | Style description passed to Gemini. |
+| `--platform` / `--no-platform` | `--no-platform` | Add an isometric platform for perspective grounding. |
+| `--tiles {1,4,9}` | `1` | Platform size. Values above `1` imply `--platform`. |
 
-#### Examples
+### Examples
 
-Walk cycle (looping):
+Looping walk cycle:
+
 ```bash
-pixel-magic animate --name samurai --animation walk --frames 6 --platform --loop
+pixel-magic animate --name samurai --animation walk --frames 6 --platform
 ```
 
-Attack with extra floor space (one-shot):
+One-shot attack with extra floor space:
+
 ```bash
 pixel-magic animate --name samurai --animation attack --frames 4 --tiles 4 --no-loop
 ```
 
-Spell cast with maximum floor space:
+Spell cast with a custom reference:
+
 ```bash
-pixel-magic animate --name samurai --animation cast --frames 4 --tiles 9 --no-loop
+pixel-magic animate \
+  --name samurai \
+  --animation cast \
+  --frames 4 \
+  --reference path/to/reference.png \
+  --no-loop
 ```
 
-#### Output
+### Output
 
-```
+```text
 output/<name>/animations/<animation>/
-├── canvas_input.png    # Input canvas sent to Gemini
-├── sheet_raw.png       # Gemini raw output
-├── sheet_cleaned.png   # After platform removal (if --platform)
-├── sheet.png           # Final horizontal sprite sheet
-├── frame_01.png        # Individual frames
+├── canvas_input.png
+├── sheet_raw.png
+├── sheet_cleaned.png       # Present when platform cleanup runs
+├── sheet.png
+├── frame_01.png
 ├── frame_02.png
 └── ...
 ```
 
-### `pixel-magic animate-object`
+## `pixel-magic animate-object`
 
 Generate animation frames for an existing object sprite.
 
@@ -150,225 +192,294 @@ Generate animation frames for an existing object sprite.
 pixel-magic animate-object --set <set-name> --name <object-name> [options]
 ```
 
-#### Required Arguments
+### Required Arguments
 
 | Argument | Description |
 |---|---|
-| `--set <set-name>` | Object set name (e.g., `forest`, `torch`, `dungeon`). |
-| `--name <object-name>` | Object name within the set (e.g., `oak_tree_1`, `torch_1`). |
+| `--set <set-name>` | Object set name, for example `forest`, `dungeon`, or `camp`. |
+| `--name <object-name>` | Object name inside that set, for example `oak_tree_1` or `torch_1`. |
 
-#### Optional Arguments
+### Optional Arguments
 
 | Argument | Default | Description |
 |---|---|---|
-| `--animation <type>` | `sway` | Animation type: `sway`, `flicker`, `burn`, `pulse`, `open`, `bob`, `spin` |
-| `--description "<desc>"` | *(none)* | Object description (helps model consistency) |
-| `--frames <n>` | `5` | Total frames in the animation cycle |
-| `--loop` / `--no-loop` | `--loop` | Looping animation (first=last frame) or one-shot |
-| `--reference <path>` | *(auto)* | Custom reference frame path (overrides auto-detect from `output/objects/<set>/<name>.png`) |
-| `--platform` / `--no-platform` | `--no-platform` | Add isometric platform for perspective grounding |
-| `--tiles {1,4,9}` | `1` | Platform tile count. Implies `--platform`. |
-| `--output-dir <path>` | `output` | Root output directory |
-| `--chromakey {green,blue,pink}` | `pink` | Chromakey color. Defaults to pink to preserve green/blue object content. |
-| `--style "<style>"` | `16-bit SNES RPG style` | Art style |
-| `--sizes "<list>"` | *(none)* | Resize frames to pixel art sizes (e.g. `32,64` or `all`). |
-| `--num-colors <n>` | *(none)* | Palette size for resized frames. |
+| `--animation <type>` | `sway` | Animation name. |
+| `--description "<desc>"` | *(none)* | Extra object description for consistency. |
+| `--frames <n>` | `5` | Total number of frames in the cycle. |
+| `--loop` / `--no-loop` | `--loop` | Generate a looping or one-shot sequence. |
+| `--reference <path>` | *(auto-detect)* | Override the source object sprite path. |
+| `--output-dir <path>` | `output` | Root output directory. |
+| `--chromakey {green,blue,pink}` | `pink` | Pink is the default to protect green and blue object colors. |
+| `--style "<style>"` | `16-bit SNES RPG style` | Style description passed to Gemini. |
+| `--platform` / `--no-platform` | `--no-platform` | Add an isometric platform for grounding. |
+| `--tiles {1,4,9}` | `1` | Platform size. Values above `1` imply `--platform`. |
+| `--sizes "<list>"` | *(none)* | Resize frames to `16,32,48,64,96,128,256` or `all`. |
+| `--num-colors <n>` | *(preserve original)* | Palette size for resized frames. |
 
-#### Animation Types
+### Common Animation Types
 
-| Type | Description | Good for |
-|---|---|---|
-| `sway` | Gentle rocking side to side | Trees, bushes, banners, flags |
-| `flicker` | Flame/light pulses and shifts shape | Torches, candles, lanterns |
-| `burn` | Flames dance, smoke rises | Campfires, bonfires |
-| `pulse` | Brightens and dims rhythmically | Crystals, magic orbs, runes |
-| `open` | Lid/door/cover opens | Chests, gates, doors |
-| `bob` | Floats up and down | Magic items, floating objects |
-| `spin` | Rotates in place | Coins, gems, gears |
+| Type | Good for |
+|---|---|
+| `sway` | Trees, bushes, flags, banners |
+| `flicker` | Torches, candles, lanterns |
+| `burn` | Campfires, bonfires |
+| `pulse` | Crystals, magic orbs, runes |
+| `open` | Chests, gates, doors |
+| `bob` | Floating items |
+| `spin` | Coins, gems, gears |
 
-#### Examples
+### Examples
 
-Swaying tree (looping):
-```bash
-pixel-magic animate-object --set forest --name oak_tree --animation sway --frames 5
-```
+Looping torch flicker:
 
-Flickering torch:
 ```bash
 pixel-magic animate-object --set dungeon --name torch --animation flicker --frames 6
 ```
 
-Chest opening (one-shot):
+One-shot chest opening:
+
 ```bash
 pixel-magic animate-object --set dungeon --name chest --animation open --frames 5 --no-loop
 ```
 
-With resize to game-ready sizes:
+Looping campfire with resized outputs:
+
 ```bash
 pixel-magic animate-object --set camp --name campfire --animation burn --frames 6 --sizes 32,64
 ```
 
-With custom reference:
-```bash
-pixel-magic animate-object --set custom --name my_crystal --animation pulse --reference path/to/crystal.png
-```
+### Output
 
-#### Output
-
-```
+```text
 output/objects/<set-name>/animations/<object-name>/<animation>/
-├── canvas_input.png    # Input canvas sent to Gemini
-├── sheet_raw.png       # Gemini raw output
-├── sheet_cleaned.png   # After platform removal (if --platform)
-├── sheet.png           # Final horizontal sprite sheet
-├── frame_01.png        # Individual cleaned frames
+├── canvas_input.png
+├── sheet_raw.png
+├── sheet_cleaned.png       # Present when platform cleanup runs
+├── sheet.png
+├── frame_01.png
 ├── frame_02.png
 ├── ...
-├── 32x32/              # Optional resized outputs
+├── 32x32/
 │   ├── frame_01.png
-│   ├── ...
 │   └── sheet.png
 └── 64x64/
     ├── frame_01.png
-    ├── ...
     └── sheet.png
 ```
 
-### `pixel-magic tile`
+## `pixel-magic effect`
 
-Generate isometric terrain tilesets using a canvas-guided Gemini pipeline.
+Generate subjectless VFX animation sheets such as explosions, smoke, fire, and status effects.
+
+```bash
+pixel-magic effect (--name <effect> | --preset <preset>) [options]
+```
+
+### Required Arguments
+
+| Argument | Description |
+|---|---|
+| `--name <effect>` | Generate a single named effect such as `explosion` or `fire`. |
+| `--preset <preset>` | Generate all effects in a preset group: `combat`, `magic`, `nature`, `status`, or `custom`. |
+
+### Optional Arguments
+
+| Argument | Default | Description |
+|---|---|---|
+| `--names "<a,b,c>"` | *(none)* | Required when using `--preset custom`. |
+| `--description "<desc>"` | effect name | Optional extra description for the effect. |
+| `--frames <n>` | `6` | Total number of frames. Must be at least `2`. Looping effects need at least `3`. |
+| `--loop` / `--no-loop` | auto-detected by effect type | Override the default looping behavior. |
+| `--output-dir <path>` | `output` | Root output directory. |
+| `--style "<style>"` | `16-bit SNES RPG style` | Style description passed to Gemini. |
+| `--max-colors <n>` | `16` | Maximum color count in the prompt. |
+| `--chromakey {green,blue,pink}` | `pink` | Pink is the default to preserve green and blue VFX colors. |
+| `--sizes "<list>"` | *(none)* | Resize frames to `16,32,48,64,96,128,256` or `all`. |
+| `--num-colors <n>` | *(preserve original)* | Palette size for resized frames. |
+
+### Presets
+
+| Preset | Effects |
+|---|---|
+| `combat` | `explosion`, `slash`, `shield_hit` |
+| `magic` | `magic_circle`, `healing_aura`, `energy_ball` |
+| `nature` | `smoke`, `fire`, `water_splash` |
+| `status` | `poison_cloud`, `stun_stars`, `buff_glow` |
+
+### Examples
+
+One-shot explosion:
+
+```bash
+pixel-magic effect --name explosion --frames 4 --no-loop
+```
+
+Looping fire with resized outputs:
+
+```bash
+pixel-magic effect --name fire --frames 4 --sizes 32
+```
+
+Generate a full preset group:
+
+```bash
+pixel-magic effect --preset combat --frames 6
+```
+
+Custom effect set:
+
+```bash
+pixel-magic effect --preset custom --names "ice_burst,lightning_arc,holy_flash" --frames 5
+```
+
+### Output
+
+```text
+output/effects/<effect-name>/
+├── canvas_input.png
+├── sheet_raw.png
+├── sheet_cleaned.png
+├── sheet.png
+├── frame_01.png
+├── frame_02.png
+├── ...
+└── 32x32/
+    ├── frame_01.png
+    └── sheet.png
+```
+
+When you use `--preset`, the command nests effects under the preset name:
+
+```text
+output/effects/<preset>/<effect-name>/
+```
+
+### Notes
+
+- The effect flow uses an empty numbered canvas, then a cleanup pass to remove guide digits before local extraction.
+- Looping effects are closed deterministically after cleanup so frame 1 and the final frame match exactly.
+
+## `pixel-magic tile`
+
+Generate isometric terrain tilesets using a labeled diamond canvas.
 
 ```bash
 pixel-magic tile (--type <tile-type> | --theme <theme>) [options]
 ```
 
-#### Required Arguments
+### Required Arguments
 
 | Argument | Description |
 |---|---|
-| `--type <tile-type>` | Generate variants of a single tile material, for example `grass`, `stone`, or `water`. Mutually exclusive with `--theme`. |
-| `--theme <theme>` | Generate a predefined tile set: `forest`, `dungeon`, `desert`, `winter`, or `custom`. Mutually exclusive with `--type`. |
+| `--type <tile-type>` | Generate variants of a single material, for example `grass`, `stone`, or `water`. |
+| `--theme <theme>` | Generate a predefined set: `forest`, `dungeon`, `desert`, `winter`, or `custom`. |
 
-#### Optional Arguments
+### Optional Arguments
 
 | Argument | Default | Description |
 |---|---|---|
-| `--variants <n>` | `4` | Number of variants for `--type` mode. Must be `>= 1`. |
-| `--types "<a,b,c>"` | *(none)* | Required when using `--theme custom`. Comma-separated custom tile labels, for example `--types "mud,brick,poison swamp"`. |
-| `--output-dir <path>` | `output` | Root output directory. Tiles are saved to `<output-dir>/tiles/<set-name>/`. |
-| `--style "<style>"` | `16-bit SNES RPG style` | Art style description included in the prompt. |
+| `--variants <n>` | `4` | Number of variants for `--type` mode. Must be at least `1`. |
+| `--types "<a,b,c>"` | *(none)* | Required when using `--theme custom`. |
+| `--output-dir <path>` | `output` | Root output directory. |
+| `--style "<style>"` | `16-bit SNES RPG style` | Style description passed to Gemini. |
 | `--max-colors <n>` | `16` | Maximum color count in the prompt. |
-| `--chromakey {green,blue,pink}` | `pink` for `tile` | Chromakey background for the tile pipeline. `tile` defaults to vivid pink even if the repo-wide `.env` default is green or blue. |
-| `--depth <n>` | `4` | Side-face depth in pixels. Use `0` for flat top-only isometric diamonds. |
-| `--sizes "<list>"` | *(none)* | Optional resized outputs, for example `32,64` or `all`. |
-| `--num-colors <n>` | *(none)* | Optional palette size for resized outputs. |
+| `--chromakey {green,blue,pink}` | `pink` | Pink is the recommended default for tiles. |
+| `--depth <n>` | `4` | Side-face depth in pixels. Use `0` for flat diamonds. |
+| `--sizes "<list>"` | *(none)* | Resize outputs to `16,32,48,64,96,128,256` or `all`. |
+| `--num-colors <n>` | *(preserve original)* | Palette size for resized outputs. |
 
-#### Examples
+### Examples
 
-Single material, multiple variants:
+Single material with variants:
+
 ```bash
-pixel-magic tile \
-  --type grass \
-  --variants 4 \
-  --sizes 32,64
+pixel-magic tile --type grass --variants 4 --sizes 32,64
 ```
 
-Predefined theme:
+Predefined forest set:
+
 ```bash
-pixel-magic tile \
-  --theme forest \
-  --depth 4
+pixel-magic tile --theme forest --depth 4
 ```
 
-Custom material set:
+Custom set:
+
 ```bash
-pixel-magic tile \
-  --theme custom \
-  --types "mud,brick,poison swamp"
+pixel-magic tile --theme custom --types "mud,brick,poison swamp"
 ```
 
-Flat tiles:
+Flat cobblestone:
+
 ```bash
-pixel-magic tile \
-  --type cobblestone \
-  --variants 3 \
-  --depth 0
+pixel-magic tile --type cobblestone --variants 3 --depth 0
 ```
 
-#### Output
+### Output
 
-```
+```text
 output/tiles/<set-name>/
-├── canvas_input.png      # Labeled diamond canvas sent to Gemini
-├── raw.png               # Gemini pass 1 output
-├── sheet_cleaned.png     # Gemini pass 2 output after label/guide removal
-├── <tile>.png            # Extracted high-res canonical tiles
-├── 32x32/                # Optional resized outputs
+├── canvas_input.png
+├── raw.png
+├── sheet_cleaned.png
+├── <tile>.png
+├── 32x32/
 │   └── <tile>.png
 └── 64x64/
     └── <tile>.png
 ```
 
-#### Tile Notes
+### Notes
 
-- The tile canvas intentionally keeps text labels in the reference image. For terrain, the labels bind each slot to a specific material (`mud`, `brick`, `poison swamp`, etc.). Without them, custom sets drift more often than character views do.
-- The cleanup pass removes those labels after generation. This means label readability matters less than material-slot binding.
-- The tile pipeline defaults to **pink chromakey** because green backgrounds erase grass-like tiles and blue backgrounds erase water/ice-like tiles during chromakey cleanup.
-- Small custom sets use an exact layout when possible. A 3-tile custom set uses a `3x1` canvas instead of a `2x2` grid with an empty cell, because empty cells encourage Gemini to hallucinate extra tiles.
+- Tile labels stay on the input canvas intentionally to improve slot binding.
+- Small custom sets avoid empty cells when possible. For example, 3 tiles use a `3x1` layout instead of `2x2`.
+- Tiles use `_clean_tile()`, not the sprite outline path, so natural terrain edges are preserved.
 
-#### Known Weaknesses
+## `pixel-magic object`
 
-- Tile material quality is still model-driven. Even with the improved canvas, some materials need retries to get a strong result.
-- Water-like and ice-like surfaces survive extraction better with pink chromakey, but their internal shading and edge design can still vary noticeably between runs.
-- Text labels help slot binding, but they also add some visual noise to the input canvas. The current tradeoff favors correctness. A future iteration may switch to minimal numeric IDs in-canvas with the full label mapping moved into the prompt.
-- The cleanup pass removes labels and guides, but faint model artifacts can still remain in rare runs. Keep `raw.png` and `sheet_cleaned.png` for debugging when a tile looks off.
-
-### `pixel-magic object`
-
-Generate isometric world objects and props using a platform-guided Gemini pipeline.
+Generate isometric world objects and props using a labeled platform canvas.
 
 ```bash
 pixel-magic object (--name <name> | --preset <preset>) [options]
 ```
 
-#### Required Arguments
+### Required Arguments
 
 | Argument | Description |
 |---|---|
-| `--name <name>` | Generate variants of a single object type, for example `tree`, `rock`, or `chest`. Mutually exclusive with `--preset`. |
-| `--preset <preset>` | Generate a predefined object set: `forest`, `dungeon`, `village`, `camp`, `desert`, `winter`, or `custom`. Mutually exclusive with `--name`. |
+| `--name <name>` | Generate variants of a single object type such as `tree`, `rock`, or `chest`. |
+| `--preset <preset>` | Generate a predefined object set: `forest`, `dungeon`, `village`, `camp`, `desert`, `winter`, or `custom`. |
 
-#### Optional Arguments
+### Optional Arguments
 
 | Argument | Default | Description |
 |---|---|---|
-| `--variants <n>` | `4` | Number of variants for `--name` mode. Must be `>= 1`. |
-| `--names "<a,b,c>"` | *(none)* | Required when using `--preset custom`. Comma-separated custom object names. |
-| `--description "<desc>"` | *(none)* | Optional theme/style description to guide the overall aesthetic. |
-| `--output-dir <path>` | `output` | Root output directory. Objects are saved to `<output-dir>/objects/<set-name>/`. |
-| `--style "<style>"` | `16-bit SNES RPG style` | Art style description included in the prompt. |
+| `--variants <n>` | `4` | Number of variants for `--name` mode. Must be at least `1`. |
+| `--names "<a,b,c>"` | *(none)* | Required when using `--preset custom`. |
+| `--description "<desc>"` | *(none)* | Extra theme/style guidance. |
+| `--output-dir <path>` | `output` | Root output directory. |
+| `--style "<style>"` | `16-bit SNES RPG style` | Style description passed to Gemini. |
 | `--max-colors <n>` | `16` | Maximum color count in the prompt. |
-| `--chromakey {green,blue,pink}` | `pink` | Chromakey background. Defaults to pink to preserve green (trees) and blue (ice, water) content. |
+| `--chromakey {green,blue,pink}` | `pink` | Pink is the default to protect green and blue object colors. |
 | `--depth <n>` | `8` | Platform side-face depth in pixels. |
-| `--sizes "<list>"` | *(none)* | Optional resized outputs, for example `32,64` or `all`. |
-| `--num-colors <n>` | *(none)* | Optional palette size for resized outputs. |
+| `--sizes "<list>"` | *(none)* | Resize outputs to `16,32,48,64,96,128,256` or `all`. |
+| `--num-colors <n>` | *(preserve original)* | Palette size for resized outputs. |
 
-#### Examples
+### Examples
 
 Single object type with variants:
+
 ```bash
-pixel-magic object \
-  --name tree \
-  --variants 4
+pixel-magic object --name tree --variants 4
 ```
 
-Predefined theme:
+Predefined set:
+
 ```bash
-pixel-magic object \
-  --preset forest
+pixel-magic object --preset forest
 ```
 
-Custom object set with theme description:
+Custom set with extra theme guidance:
+
 ```bash
 pixel-magic object \
   --preset custom \
@@ -376,29 +487,21 @@ pixel-magic object \
   --description "dark fantasy dungeon props"
 ```
 
-With pixel art resize:
-```bash
-pixel-magic object \
-  --name rock \
-  --variants 3 \
-  --sizes 32,64
-```
+### Output
 
-#### Output
-
-```
+```text
 output/objects/<set-name>/
-├── canvas_input.png      # Labeled platform canvas sent to Gemini
-├── raw.png               # Gemini pass 1 output
-├── sheet_cleaned.png     # Gemini pass 2 output after platform/label removal
-├── <object>.png          # Extracted cleaned objects with uniform outlines
-├── 32x32/                # Optional resized outputs
+├── canvas_input.png
+├── raw.png
+├── sheet_cleaned.png
+├── <object>.png
+├── 32x32/
 │   └── <object>.png
 └── 64x64/
     └── <object>.png
 ```
 
-#### Available Presets
+### Presets
 
 | Preset | Objects |
 |---|---|
@@ -409,22 +512,21 @@ output/objects/<set-name>/
 | `desert` | cactus, dead tree, sandstone rock, skull, pottery, palm tree |
 | `winter` | snowy pine, ice rock, frozen bush, snowman, ice crystal, snow pile |
 
----
-
 ## Environment Configuration
 
-Settings are loaded from a `.env` file in the project root. CLI arguments override `.env` values.
+Settings are loaded from a `.env` file in the project root. CLI flags override `.env`.
 
 | Variable | Default | Description |
 |---|---|---|
-| `GOOGLE_API_KEY` | *(required)* | Google AI API key |
-| `PIXEL_MAGIC_GEMINI_IMAGE_MODEL` | `gemini-3.1-flash-image-preview` | Gemini model name |
-| `PIXEL_MAGIC_DIRECTION_MODE` | `4` | Default direction count |
-| `PIXEL_MAGIC_MAX_COLORS` | `16` | Default color limit |
-| `PIXEL_MAGIC_CHROMAKEY_COLOR` | `green` | Default chromakey color for character generation and animation (`green` or `blue`). The `tile` and `object` commands use `pink` by default unless you override it with `--chromakey`. |
-| `PIXEL_MAGIC_OUTPUT_DIR` | `output` | Default output directory |
+| `GOOGLE_API_KEY` | *(required)* | Google AI API key. |
+| `PIXEL_MAGIC_GEMINI_IMAGE_MODEL` | `gemini-3.1-flash-image-preview` | Gemini image model. |
+| `PIXEL_MAGIC_DIRECTION_MODE` | `4` | Default direction mode for character generation. |
+| `PIXEL_MAGIC_MAX_COLORS` | `16` | Default max color limit. |
+| `PIXEL_MAGIC_CHROMAKEY_COLOR` | `green` | Default chromakey for character generation and character animation. Non-character flows commonly default to pink unless explicitly overridden. |
+| `PIXEL_MAGIC_OUTPUT_DIR` | `output` | Default output directory. |
 
-Example `.env`:
+Example:
+
 ```env
 GOOGLE_API_KEY=AI...
 PIXEL_MAGIC_CHROMAKEY_COLOR=green

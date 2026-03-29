@@ -2,7 +2,7 @@
 
 ## Overview
 
-pixel-magic generates isometric pixel art assets using Gemini image generation. All five commands (`generate`, `animate`, `animate-object`, `tile`, `object`) share the same 2-pass canvas pipeline: build a template canvas with guides (platforms, wireframes, labels), Gemini fills in content, a cleanup pass removes guides. Post-processing is unified: all commands use the same `_clean_sprite()` pipeline (background removal → mask cleanup with outline strip → outline re-add).
+pixel-magic generates isometric pixel art assets using Gemini image generation. Most commands use a canvas pipeline: build a template with guides (platforms, wireframes, labels, frame numbers), Gemini fills in content, a cleanup pass removes guides. `generate --no-platform` is the exception — it uses a single text-only Gemini call with no canvas. Post-processing uses `_clean_sprite()` for sprites (background removal → mask cleanup with outline strip → outline re-add) and `_clean_tile()` for tiles (background removal → mask cleanup without outline stripping). The flowchart below details the `generate` command; other commands follow the same post-processing stages.
 
 ## Process Flow
 
@@ -214,7 +214,7 @@ The composite sheet is split into individual view PNGs using connected-component
 
 ### 8. Mask Cleanup + Outline Strip/Re-add
 
-Each extracted sprite is cleaned and given a uniform outline. This pipeline (`_clean_sprite()`) is shared by all four commands (generate, animate, tile, object).
+Each extracted sprite is cleaned and given a uniform outline. The `_clean_sprite()` pipeline is shared by sprite commands (generate, animate, animate-object, object, effect). Tiles use `_clean_tile()` which skips outline stripping to preserve natural terrain edges.
 
 **Step A: Candidate Mask** — pixels with alpha >= 32 are candidates for the foreground.
 

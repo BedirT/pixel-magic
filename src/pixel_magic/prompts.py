@@ -332,6 +332,108 @@ RULES:
 - Same color palette across all frames"""
 
 
+# ---------------------------------------------------------------------------
+# Effect animation prompts (subjectless VFX)
+# ---------------------------------------------------------------------------
+
+_EFFECT_ANIMATION_DESCRIPTIONS: dict[str, str] = {
+    "explosion": "an explosion — starts as a bright flash, expands outward with fire and debris, then dissipates into smoke and embers.",
+    "slash": "a slash effect — a sharp arc of energy sweeps across the frame, trailing light, then fades away.",
+    "shield_hit": "a shield impact — concentric rings of energy pulse outward from a central hit point, then fade.",
+    "magic_circle": "a rotating magic circle — glowing runes and geometric patterns spin and pulse with arcane energy.",
+    "healing_aura": "a healing aura — gentle green/white particles rise upward, glowing warmly, in a cyclical pattern.",
+    "energy_ball": "an energy ball — a sphere of crackling energy pulses, sparks, and shifts shape between frames.",
+    "smoke": "a smoke puff — a cloud billows outward from the center, expanding and thinning as it dissipates.",
+    "fire": "a fire animation — flames dance and flicker, changing shape organically each frame while maintaining the same base position.",
+    "water_splash": "a water splash — droplets erupt upward and arc outward in all directions, then settle.",
+    "poison_cloud": "a poison cloud — sickly green gas swirls and undulates in place with subtle drifting particles.",
+    "stun_stars": "stun stars — small stars orbit in a circle above, twinkling and spinning rhythmically.",
+    "buff_glow": "a buff glow — a radiant aura pulses outward rhythmically, with rising energy particles.",
+}
+
+
+def build_effect_animation_prompt(
+    effect_name: str,
+    total_frames: int,
+    effect_description: str = "",
+    style: str = "16-bit SNES RPG style",
+    chromakey_color: str = "pink",
+    loop: bool = False,
+    grid_cols: int | None = None,
+    grid_rows: int | None = None,
+) -> str:
+    """Build a prompt for single-pass effect animation generation.
+
+    All slots are empty — the model generates every frame from scratch.
+    No reference frame, no anchor constraints.
+    """
+    hex_color = _CHROMAKEY_HEX.get(chromakey_color, "#FF00FF")
+    anim_desc = _EFFECT_ANIMATION_DESCRIPTIONS.get(
+        effect_name, f"a {effect_name.replace('_', ' ')} animation.",
+    )
+
+    if grid_cols and grid_rows:
+        layout_desc = f"{total_frames} numbered frame slots arranged in a {grid_cols}x{grid_rows} grid (read left-to-right, top-to-bottom)"
+    else:
+        layout_desc = f"{total_frames} frame slots in a horizontal row"
+
+    effect_line = ""
+    if effect_description:
+        effect_line = f"\nThe effect is {effect_description}."
+
+    if loop:
+        loop_desc = f"This is a LOOPING animation with {total_frames} frames. Frame 1 and frame {total_frames} must show the same state so the animation cycles seamlessly. Fill all {total_frames} slots with frames that progress through the full motion and return to the start."
+    else:
+        loop_desc = f"This is a one-shot animation with {total_frames} frames. Frame 1 is the beginning of the effect, frame {total_frames} is the end. The effect should build up, peak, and dissipate across the full sequence."
+
+    return f"""\
+This image is an empty sprite sheet template with {layout_desc}, on a {chromakey_color} ({hex_color}) background. Each slot has a small white number showing its frame position.
+
+Fill EVERY slot with a frame of {anim_desc}
+{effect_line}
+
+{loop_desc}
+
+RULES:
+- Draw one animation frame per slot — paint OVER the frame numbers completely
+- Maintain consistent color palette and art style across all frames
+- Each slot must show a DIFFERENT state progressing through the animation
+- Follow the numbered slot order (1, 2, 3...) for correct animation sequence
+- The effect should be centered in each frame
+- Fill the entire slot area with {chromakey_color} ({hex_color}) background around the effect — no leftover guide marks
+- Style: {style}, front-facing 2D view (not isometric — this is a VFX overlay)
+- Pixel art: hard pixel edges, no anti-aliasing, no smoothing
+- 1-pixel black outline on all effect elements (particles, energy shapes, flames, etc.)
+- Same color palette across all frames"""
+
+
+def build_effect_cleanup_prompt(
+    total_frames: int,
+    chromakey_color: str = "pink",
+    grid_cols: int | None = None,
+    grid_rows: int | None = None,
+) -> str:
+    """Prompt for removing frame guide numbers from effect sprite sheets."""
+    hex_color = _CHROMAKEY_HEX.get(chromakey_color, "#FF00FF")
+
+    if grid_cols and grid_rows:
+        layout_desc = f"arranged in a {grid_cols}x{grid_rows} grid"
+    else:
+        layout_desc = "in a horizontal row"
+
+    return f"""\
+This is a pixel art sprite sheet with {total_frames} visual effect frames {layout_desc}. Each frame may have a small white number label used as a guide.
+
+Remove the white frame numbers from EVERY frame. Replace the number pixels with solid {chromakey_color} ({hex_color}) background.
+
+RULES:
+- Keep the visual effect art EXACTLY as it is — same colors, shapes, timing, and pixel art style
+- Do NOT modify any effect pixels — only remove the white frame numbers
+- Fill where the numbers were with solid {chromakey_color} ({hex_color})
+- The output must be the same dimensions as the input
+- Maintain the same {layout_desc} frame layout"""
+
+
 def build_platform_removal_prompt(
     total_frames: int,
     chromakey_color: str = "green",
