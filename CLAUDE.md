@@ -1,6 +1,6 @@
 # pixel-magic
 
-AI-powered pixel art character sprite generation and animation CLI. Generates isometric multi-view character sheets, animation sprite sheets, terrain tiles, and world objects using Google Gemini with a canvas-based pipeline: labeled isometric platforms provide perspective grounding, Gemini fills in content, platforms are removed in a second pass.
+AI-powered pixel art character sprite generation and animation CLI. Generates isometric multi-view character sheets, animation sprite sheets, terrain tiles, world objects, and VFX effects using Google Gemini with a canvas-based pipeline: labeled isometric platforms provide perspective grounding, Gemini fills in content, platforms are removed in a second pass.
 
 ## Tech Stack
 
@@ -16,6 +16,7 @@ AI-powered pixel art character sprite generation and animation CLI. Generates is
 - Tile: `pixel-magic tile --type grass --variants 4` or `pixel-magic tile --theme forest --depth 8`
 - Object: `pixel-magic object --name tree --variants 4` or `pixel-magic object --preset forest`
 - Animate Object: `pixel-magic animate-object --set forest --name oak_tree --animation sway|flicker|burn|pulse|open|bob|spin --frames 5`
+- Effect: `pixel-magic effect --name explosion --frames 6` or `pixel-magic effect --preset combat`
 - Install deps: `uv sync`
 
 ## Workflow
@@ -35,6 +36,7 @@ src/pixel_magic/
     animate.py      # Canvas building, grid layout, frame extraction
     tile.py         # Terrain tile generation (canvas, extraction, fitting)
     object.py       # World object generation (canvas, extraction)
+    effect.py       # VFX effect presets and resolution
     platform.py     # Isometric platform + tile outline generation
     background.py   # Chromakey removal (rembg + despill)
     extract.py      # Sprite extraction (connected-component)

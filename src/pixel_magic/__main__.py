@@ -188,6 +188,25 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     obj.add_argument("--num-colors", type=int, default=None, help="Palette size for resized objects")
 
+    eff = sub.add_parser("effect", help="Generate animated VFX effects (explosions, smoke, magic, etc.)")
+    eff_mode = eff.add_mutually_exclusive_group(required=True)
+    eff_mode.add_argument("--name", help="Single effect name (e.g., explosion, fire, magic_circle)")
+    eff_mode.add_argument("--preset", help="Effect preset group (e.g., combat, magic, nature, status, custom)")
+    eff.add_argument("--names", default="", help="Custom effect names for --preset custom (comma-separated)")
+    eff.add_argument("--description", default="", help="Optional effect description (auto-inferred from name if empty)")
+    eff.add_argument("--frames", type=int, default=6, help="Total animation frames (default: 6)")
+    eff.add_argument("--loop", action="store_true", default=None, help="Force looping animation")
+    eff.add_argument("--no-loop", dest="loop", action="store_false", help="Force one-shot animation")
+    eff.add_argument("--output-dir", default="output", help="Output directory (default: output)")
+    eff.add_argument("--style", default="16-bit SNES RPG style", help="Art style")
+    eff.add_argument("--max-colors", type=int, default=16, help="Max color count (default: 16)")
+    eff.add_argument("--chromakey", choices=["green", "blue", "pink"], default=None, help="Chromakey color (default: pink)")
+    eff.add_argument(
+        "--sizes", default="",
+        help='Resize frames to pixel art sizes (e.g. "32,64" or "all")',
+    )
+    eff.add_argument("--num-colors", type=int, default=None, help="Palette size for resized frames")
+
     return parser
 
 
@@ -477,6 +496,101 @@ async def _animate_object(args: argparse.Namespace) -> None:
         print(f"Saved {len(sizes)} size variants")
 
 
+async def _effect(args: argparse.Namespace) -> None:
+    from pixel_magic.animate import assemble_sprite_sheet, generate_animation
+    from pixel_magic.config import Settings
+    from pixel_magic.effect import infer_loop_default, resolve_effect_labels
+    from pixel_magic.prompts import build_effect_reference_prompt
+    from pixel_magic.providers.gemini import GeminiProvider
+
+    settings = Settings()
+    chromakey_color = _resolve_chromakey_pink(args.chromakey)
+
+    set_name, effect_labels = resolve_effect_labels(
+        name=args.name, preset=args.preset, custom_names=args.names,
+    )
+
+    provider = GeminiProvider(
+        api_key=settings.google_api_key,
+        model=settings.gemini_image_model,
+    )
+
+    for effect_name in effect_labels:
+        # Determine loop behavior: explicit flag > auto-detect from effect name
+        loop = args.loop if args.loop is not None else infer_loop_default(effect_name)
+        description = args.description or effect_name.replace("_", " ")
+
+        # Output directory: effects/{name}/ or effects/{preset}/{name}/
+        safe_name = effect_name.replace(" ", "_").replace("/", "_")
+        if args.preset:
+            eff_dir = Path(args.output_dir) / "effects" / set_name / safe_name
+        else:
+            eff_dir = Path(args.output_dir) / "effects" / safe_name
+        eff_dir.mkdir(parents=True, exist_ok=True)
+
+        print(f"Generating {effect_name} effect ({args.frames} frames, {'loop' if loop else 'one-shot'})...")
+
+        # Pass 1: Generate reference frame (text-to-image)
+        ref_prompt = build_effect_reference_prompt(
+            effect_name=effect_name,
+            description=description,
+            style=args.style,
+            max_colors=args.max_colors,
+            chromakey_color=chromakey_color,
+        )
+        print("  Generating reference frame...")
+        ref_result = await provider.generate(ref_prompt)
+        ref_result.image.save(eff_dir / "reference_raw.png")
+
+        reference = _clean_sprite(ref_result.image, chromakey_color)
+        reference.save(eff_dir / "reference.png")
+        print(f"  Reference: {reference.width}x{reference.height}")
+
+        # Pass 2: Animate using canvas pipeline
+        raw_frames = await generate_animation(
+            provider=provider,
+            reference_frame=reference,
+            animation_type=effect_name,
+            total_frames=args.frames,
+            loop=loop,
+            character_description=description,
+            style=args.style,
+            chromakey_color=chromakey_color,
+            save_dir=eff_dir,
+            platform=False,
+            tiles=1,
+            subject="effect",
+        )
+
+        cleaned_frames = []
+        for i, frame in enumerate(raw_frames, 1):
+            cleaned = _clean_sprite(frame, chromakey_color)
+            cleaned.save(eff_dir / f"frame_{i:02d}.png")
+            cleaned_frames.append(cleaned)
+
+        sheet = assemble_sprite_sheet(cleaned_frames)
+        sheet.save(eff_dir / "sheet.png")
+        print(f"Saved {len(cleaned_frames)} frames + sheet to {eff_dir}")
+
+        # Resize frames to target pixel art sizes
+        if args.sizes:
+            from pixel_magic.resize import parse_sizes, resize_sprite
+
+            sizes = parse_sizes(args.sizes)
+            for size in sizes:
+                size_dir = eff_dir / f"{size}x{size}"
+                size_dir.mkdir(exist_ok=True)
+                resized_frames = []
+                for i, frame in enumerate(cleaned_frames, 1):
+                    resized = resize_sprite(frame, size, num_colors=args.num_colors)
+                    resized.save(size_dir / f"frame_{i:02d}.png")
+                    resized_frames.append(resized)
+                resized_sheet = assemble_sprite_sheet(resized_frames)
+                resized_sheet.save(size_dir / "sheet.png")
+                print(f"  Resized to {size}x{size}")
+            print(f"Saved {len(sizes)} size variants")
+
+
 async def _tile(args: argparse.Namespace) -> None:
     from pixel_magic.config import Settings
     from pixel_magic.providers.gemini import GeminiProvider
@@ -706,6 +820,11 @@ def main() -> None:
     elif args.command == "object":
         try:
             asyncio.run(_object(args))
+        except ValueError as exc:
+            parser.error(str(exc))
+    elif args.command == "effect":
+        try:
+            asyncio.run(_effect(args))
         except ValueError as exc:
             parser.error(str(exc))
 

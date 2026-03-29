@@ -418,7 +418,20 @@ async def generate_animation(
     print(f"  Gemini: {aspect_ratio} ratio, {image_size} output, slot={slot_size[0]}x{slot_size[1]}")
 
     # Generate
-    if subject == "object":
+    if subject == "effect":
+        from pixel_magic.prompts import build_effect_animation_prompt
+
+        prompt = build_effect_animation_prompt(
+            animation_type=animation_type,
+            total_frames=total_frames,
+            effect_description=character_description,
+            style=style,
+            chromakey_color=chromakey_color,
+            loop=loop,
+            grid_cols=grid_cols,
+            grid_rows=grid_rows,
+        )
+    elif subject == "object":
         from pixel_magic.prompts import build_object_animation_prompt
 
         prompt = build_object_animation_prompt(

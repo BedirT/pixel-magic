@@ -332,6 +332,133 @@ RULES:
 - Same color palette across all frames"""
 
 
+# ---------------------------------------------------------------------------
+# Effect animation prompts (subjectless VFX)
+# ---------------------------------------------------------------------------
+
+_EFFECT_ANIMATION_DESCRIPTIONS: dict[str, str] = {
+    "explosion": "an explosion — starts as a bright flash, expands outward with fire and debris, then dissipates into smoke and embers.",
+    "slash": "a slash effect — a sharp arc of energy sweeps across the frame, trailing light, then fades away.",
+    "shield_hit": "a shield impact — concentric rings of energy pulse outward from a central hit point, then fade.",
+    "magic_circle": "a rotating magic circle — glowing runes and geometric patterns spin and pulse with arcane energy.",
+    "healing_aura": "a healing aura — gentle green/white particles rise upward, glowing warmly, in a cyclical pattern.",
+    "energy_ball": "an energy ball — a sphere of crackling energy pulses, sparks, and shifts shape between frames.",
+    "smoke": "a smoke puff — a cloud billows outward from the center, expanding and thinning as it dissipates.",
+    "fire": "a fire animation — flames dance and flicker, changing shape organically each frame while maintaining the same base position.",
+    "water_splash": "a water splash — droplets erupt upward and arc outward in all directions, then settle.",
+    "poison_cloud": "a poison cloud — sickly green gas swirls and undulates in place with subtle drifting particles.",
+    "stun_stars": "stun stars — small stars orbit in a circle above, twinkling and spinning rhythmically.",
+    "buff_glow": "a buff glow — a radiant aura pulses outward rhythmically, with rising energy particles.",
+}
+
+
+def build_effect_reference_prompt(
+    effect_name: str,
+    description: str = "",
+    style: str = "16-bit SNES RPG style",
+    max_colors: int = 16,
+    chromakey_color: str = "pink",
+) -> str:
+    """Build a text-to-image prompt for generating a single effect reference frame."""
+    hex_color = _CHROMAKEY_HEX.get(chromakey_color, "#FF00FF")
+
+    # Use the animation description to infer the "peak moment"
+    anim_desc = _EFFECT_ANIMATION_DESCRIPTIONS.get(effect_name, "")
+    effect_desc = description or effect_name.replace("_", " ")
+
+    prompt: dict[str, Any] = {
+        "image_type": "pixel_art",
+        "style": "front-facing 2D",
+        "purpose": "vfx_effect_reference_frame",
+        "background": {
+            "type": "chromakey",
+            "rule": _background_rule(chromakey_color),
+            "instruction": _background_instruction(chromakey_color),
+        },
+        "effect": {
+            "name": effect_name,
+            "description": f"A pixel art {effect_desc} effect",
+            "moment": f"Show the effect at its peak/most recognizable state — the single most iconic frame of {effect_desc}",
+        },
+        "art_details": {
+            "pixel_density": "medium",
+            "shading": "simple 2-3 tone stepped shading per color area",
+            "outline": (
+                "Every element MUST have a 1-pixel black (#000000) outline — "
+                "all particles, energy shapes, and distinct visual parts must be "
+                "enclosed by a black pixel border with no gaps"
+            ),
+            "anti_aliasing": "none — every edge is a hard pixel step",
+            "max_colors": max_colors,
+            "style_reference": style,
+        },
+        "layout": {
+            "arrangement": f"single centered sprite on solid {chromakey_color} ({hex_color}) background",
+            "no_grid": "do NOT draw a grid, platform, or multiple sprites — just one centered effect",
+        },
+    }
+
+    return json.dumps(prompt, indent=2)
+
+
+def build_effect_animation_prompt(
+    animation_type: str,
+    total_frames: int,
+    effect_description: str = "",
+    style: str = "16-bit SNES RPG style",
+    chromakey_color: str = "pink",
+    loop: bool = True,
+    grid_cols: int | None = None,
+    grid_rows: int | None = None,
+) -> str:
+    """Build a prompt for effect animation sprite sheet generation.
+
+    Same canvas approach as character/object animation: slot 1 has the reference,
+    remaining slots filled with chromakey for Gemini to complete.
+    No platforms — effects are floating VFX overlays.
+    """
+    hex_color = _CHROMAKEY_HEX.get(chromakey_color, "#FF00FF")
+    anim_desc = _EFFECT_ANIMATION_DESCRIPTIONS.get(
+        animation_type, f"a {animation_type} animation.",
+    )
+
+    if grid_cols and grid_rows:
+        layout_desc = f"{total_frames} numbered frame slots arranged in a {grid_cols}x{grid_rows} grid (read left-to-right, top-to-bottom)"
+    else:
+        layout_desc = f"{total_frames} frame slots in a horizontal row"
+
+    effect_line = ""
+    if effect_description:
+        effect_line = f"\nThe effect is {effect_description}."
+
+    if loop:
+        middle_count = total_frames - 2
+        loop_desc = f"The FIRST and LAST slots both show the same effect state — this is a LOOPING animation. Fill in the {middle_count} middle slots (slots 2–{total_frames - 1}) with animation frames that smoothly transition from the first state, through the full motion, and back to the same state."
+        anchor_rule = f"- Do NOT modify the first or last slot — they are identical anchor frames for the loop\n- The animation must smoothly cycle: frame {total_frames} flows back into frame 1"
+    else:
+        loop_desc = f"The FIRST slot contains the starting state. Fill in the remaining {total_frames - 1} slots with animation frames that progress the effect to completion."
+        anchor_rule = "- Do NOT modify the first slot — it is the reference frame, leave it exactly as-is"
+
+    return f"""\
+This image is a sprite sheet with {layout_desc}. {loop_desc}
+{effect_line}
+
+Show {anim_desc}
+
+RULES:
+- Maintain consistent color palette and art style across all frames
+- Each filled slot must show a DIFFERENT state progressing through the animation
+{anchor_rule}
+- Each empty slot has a small white number in the top-left corner showing its frame position — use these numbers to maintain correct animation sequence order
+- Only draw inside the {chromakey_color} areas
+- Keep the {chromakey_color} ({hex_color}) background within each frame slot
+- The effect should be centered in each frame
+- Style: {style}, front-facing 2D view (not isometric — this is a VFX overlay)
+- Pixel art: hard pixel edges, no anti-aliasing, no smoothing
+- 1-pixel black outline on all effect elements (particles, energy shapes, flames, etc.)
+- Same color palette across all frames"""
+
+
 def build_platform_removal_prompt(
     total_frames: int,
     chromakey_color: str = "green",
