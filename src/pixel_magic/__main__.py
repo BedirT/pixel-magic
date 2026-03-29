@@ -527,8 +527,15 @@ async def _effect(args: argparse.Namespace) -> None:
         extract_frames,
     )
     from pixel_magic.config import Settings
-    from pixel_magic.effect import infer_loop_default, resolve_effect_labels
-    from pixel_magic.prompts import build_effect_animation_prompt
+    from pixel_magic.effect import (
+        enforce_loop_closure,
+        infer_loop_default,
+        resolve_effect_labels,
+    )
+    from pixel_magic.prompts import (
+        build_effect_animation_prompt,
+        build_effect_cleanup_prompt,
+    )
     from pixel_magic.providers.gemini import GeminiProvider
 
     settings = Settings()
@@ -596,8 +603,23 @@ async def _effect(args: argparse.Namespace) -> None:
         )
         result.image.save(eff_dir / "sheet_raw.png")
 
+        cleanup_prompt = build_effect_cleanup_prompt(
+            args.frames,
+            chromakey_color,
+            grid_cols=grid_cols,
+            grid_rows=grid_rows,
+        )
+        print("  Removing frame numbers...")
+        cleaned = await provider.generate_with_images(
+            prompt=cleanup_prompt,
+            images=[result.image],
+            aspect_ratio=aspect_ratio,
+            image_size=image_size,
+        )
+        cleaned.image.save(eff_dir / "sheet_cleaned.png")
+
         # Resize output to match canvas dims if Gemini changed them
-        sheet = result.image
+        sheet = cleaned.image
         if sheet.size != canvas.size:
             sheet = sheet.resize(canvas.size, Image.NEAREST)
 
@@ -606,6 +628,7 @@ async def _effect(args: argparse.Namespace) -> None:
 
         cleaned_frames = [_clean_sprite(frame, chromakey_color) for frame in raw_frames]
         cleaned_frames = _normalize_animation_frames(cleaned_frames)
+        cleaned_frames = enforce_loop_closure(cleaned_frames, loop=loop)
         for i, frame in enumerate(cleaned_frames, 1):
             frame.save(eff_dir / f"frame_{i:02d}.png")
 

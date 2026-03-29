@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from PIL import Image
+
 
 # Predefined effect presets
 EFFECT_PRESETS: dict[str, list[str]] = {
@@ -54,3 +56,16 @@ def resolve_effect_labels(
 def infer_loop_default(effect_name: str) -> bool:
     """Infer whether an effect should loop by default."""
     return effect_name in _NATURALLY_LOOPING
+
+
+def enforce_loop_closure(
+    frames: list[Image.Image],
+    loop: bool,
+) -> list[Image.Image]:
+    """Make the last frame an exact copy of the first for looping effects."""
+    if not loop or len(frames) < 2:
+        return frames
+
+    closed = list(frames)
+    closed[-1] = closed[0].copy()
+    return closed

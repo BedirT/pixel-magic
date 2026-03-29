@@ -407,6 +407,33 @@ RULES:
 - Same color palette across all frames"""
 
 
+def build_effect_cleanup_prompt(
+    total_frames: int,
+    chromakey_color: str = "pink",
+    grid_cols: int | None = None,
+    grid_rows: int | None = None,
+) -> str:
+    """Prompt for removing frame guide numbers from effect sprite sheets."""
+    hex_color = _CHROMAKEY_HEX.get(chromakey_color, "#FF00FF")
+
+    if grid_cols and grid_rows:
+        layout_desc = f"arranged in a {grid_cols}x{grid_rows} grid"
+    else:
+        layout_desc = "in a horizontal row"
+
+    return f"""\
+This is a pixel art sprite sheet with {total_frames} visual effect frames {layout_desc}. Each frame may have a small white number label used as a guide.
+
+Remove the white frame numbers from EVERY frame. Replace the number pixels with solid {chromakey_color} ({hex_color}) background.
+
+RULES:
+- Keep the visual effect art EXACTLY as it is — same colors, shapes, timing, and pixel art style
+- Do NOT modify any effect pixels — only remove the white frame numbers
+- Fill where the numbers were with solid {chromakey_color} ({hex_color})
+- The output must be the same dimensions as the input
+- Maintain the same {layout_desc} frame layout"""
+
+
 def build_platform_removal_prompt(
     total_frames: int,
     chromakey_color: str = "green",
