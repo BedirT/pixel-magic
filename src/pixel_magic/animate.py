@@ -188,6 +188,43 @@ def build_canvas(
     return canvas, cols, (slot_w, slot_h), aspect_ratio, image_size
 
 
+def build_empty_canvas(
+    total_frames: int,
+    slot_w: int = 256,
+    slot_h: int = 256,
+    chromakey_color: str = "pink",
+) -> tuple[Image.Image, int, tuple[int, int], str, str]:
+    """Build a grid canvas with numbered empty slots (no reference frame).
+
+    All slots are chromakey-filled with a frame number label.
+    Used for single-pass generation where the model fills every slot.
+
+    Returns (canvas, cols, slot_size, aspect_ratio, image_size).
+    """
+    chromakey_rgb = {"green": (0, 255, 0), "blue": (0, 0, 255), "pink": (255, 0, 255)}
+    fill = chromakey_rgb.get(chromakey_color, (255, 0, 255))
+
+    cols, rows = _grid_layout(total_frames, slot_w, slot_h)
+
+    raw_w, raw_h = slot_w * cols, slot_h * rows
+    aspect_ratio, canvas_w, canvas_h = _snap_gemini_ratio(raw_w, raw_h)
+    image_size = _pick_image_size(max(canvas_w, canvas_h))
+
+    canvas = Image.new("RGBA", (canvas_w, canvas_h), (*fill, 255))
+
+    cell_w = canvas_w // cols
+    cell_h = canvas_h // rows
+
+    for idx in range(total_frames):
+        col = idx % cols
+        row = idx // cols
+        cell_x = col * cell_w
+        cell_y = row * cell_h
+        _draw_label(canvas, str(idx + 1), cell_x + cell_w // 2, cell_y + 4, cell_w)
+
+    return canvas, cols, (cell_w, cell_h), aspect_ratio, image_size
+
+
 def extract_frames(
     sheet: Image.Image,
     total_frames: int,
@@ -418,20 +455,7 @@ async def generate_animation(
     print(f"  Gemini: {aspect_ratio} ratio, {image_size} output, slot={slot_size[0]}x{slot_size[1]}")
 
     # Generate
-    if subject == "effect":
-        from pixel_magic.prompts import build_effect_animation_prompt
-
-        prompt = build_effect_animation_prompt(
-            animation_type=animation_type,
-            total_frames=total_frames,
-            effect_description=character_description,
-            style=style,
-            chromakey_color=chromakey_color,
-            loop=loop,
-            grid_cols=grid_cols,
-            grid_rows=grid_rows,
-        )
-    elif subject == "object":
+    if subject == "object":
         from pixel_magic.prompts import build_object_animation_prompt
 
         prompt = build_object_animation_prompt(

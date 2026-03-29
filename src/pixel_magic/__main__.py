@@ -521,10 +521,14 @@ async def _animate_object(args: argparse.Namespace) -> None:
 
 
 async def _effect(args: argparse.Namespace) -> None:
-    from pixel_magic.animate import assemble_sprite_sheet, generate_animation
+    from pixel_magic.animate import (
+        assemble_sprite_sheet,
+        build_empty_canvas,
+        extract_frames,
+    )
     from pixel_magic.config import Settings
     from pixel_magic.effect import infer_loop_default, resolve_effect_labels
-    from pixel_magic.prompts import build_effect_reference_prompt
+    from pixel_magic.prompts import build_effect_animation_prompt
     from pixel_magic.providers.gemini import GeminiProvider
 
     settings = Settings()
@@ -533,6 +537,9 @@ async def _effect(args: argparse.Namespace) -> None:
     set_name, effect_labels = resolve_effect_labels(
         name=args.name, preset=args.preset, custom_names=args.names,
     )
+
+    if args.frames < 2:
+        raise ValueError("Animations need at least 2 frames")
 
     provider = GeminiProvider(
         api_key=settings.google_api_key,
@@ -544,6 +551,9 @@ async def _effect(args: argparse.Namespace) -> None:
         loop = args.loop if args.loop is not None else infer_loop_default(effect_name)
         description = args.description or effect_name.replace("_", " ")
 
+        if loop and args.frames < 3:
+            raise ValueError("Looping animations need at least 3 frames")
+
         # Output directory: effects/{name}/ or effects/{preset}/{name}/
         safe_name = effect_name.replace(" ", "_").replace("/", "_")
         if args.preset:
@@ -552,50 +562,55 @@ async def _effect(args: argparse.Namespace) -> None:
             eff_dir = Path(args.output_dir) / "effects" / safe_name
         eff_dir.mkdir(parents=True, exist_ok=True)
 
-        if loop and args.frames < 3:
-            raise ValueError("Looping animations need at least 3 frames (first + middle + last)")
-
         print(f"Generating {effect_name} effect ({args.frames} frames, {'loop' if loop else 'one-shot'})...")
 
-        # Pass 1: Generate reference frame (text-to-image)
-        ref_prompt = build_effect_reference_prompt(
-            effect_name=effect_name,
-            description=description,
-            style=args.style,
-            max_colors=args.max_colors,
-            chromakey_color=chromakey_color,
-        )
-        print("  Generating reference frame...")
-        ref_result = await provider.generate(ref_prompt)
-        ref_result.image.save(eff_dir / "reference_raw.png")
-
-        reference = _clean_sprite(ref_result.image, chromakey_color)
-        reference.save(eff_dir / "reference.png")
-        print(f"  Reference: {reference.width}x{reference.height}")
-
-        # Pass 2: Animate using canvas pipeline
-        raw_frames = await generate_animation(
-            provider=provider,
-            reference_frame=reference,
-            animation_type=effect_name,
+        # Build empty grid canvas (no reference frame)
+        canvas, grid_cols, slot_size, aspect_ratio, image_size = build_empty_canvas(
             total_frames=args.frames,
-            loop=loop,
-            character_description=description,
+            chromakey_color=chromakey_color,
+        )
+        grid_rows = math.ceil(args.frames / grid_cols)
+        canvas.save(eff_dir / "canvas_input.png")
+
+        print(f"  Canvas: {canvas.width}x{canvas.height} ({grid_cols}x{grid_rows} grid, {args.frames} frames)")
+        print(f"  Gemini: {aspect_ratio} ratio, {image_size} output")
+
+        # Single Gemini call — fill all slots
+        prompt = build_effect_animation_prompt(
+            effect_name=effect_name,
+            total_frames=args.frames,
+            effect_description=description,
             style=args.style,
             chromakey_color=chromakey_color,
-            save_dir=eff_dir,
-            platform=False,
-            tiles=1,
-            subject="effect",
+            loop=loop,
+            grid_cols=grid_cols,
+            grid_rows=grid_rows,
         )
+
+        print("  Generating animation...")
+        result = await provider.generate_with_images(
+            prompt=prompt,
+            images=[canvas],
+            aspect_ratio=aspect_ratio,
+            image_size=image_size,
+        )
+        result.image.save(eff_dir / "sheet_raw.png")
+
+        # Resize output to match canvas dims if Gemini changed them
+        sheet = result.image
+        if sheet.size != canvas.size:
+            sheet = sheet.resize(canvas.size, Image.NEAREST)
+
+        # Extract frames from grid
+        raw_frames = extract_frames(sheet, args.frames, cols=grid_cols, slot_size=slot_size)
 
         cleaned_frames = [_clean_sprite(frame, chromakey_color) for frame in raw_frames]
         cleaned_frames = _normalize_animation_frames(cleaned_frames)
         for i, frame in enumerate(cleaned_frames, 1):
             frame.save(eff_dir / f"frame_{i:02d}.png")
 
-        sheet = assemble_sprite_sheet(cleaned_frames)
-        sheet.save(eff_dir / "sheet.png")
+        anim_sheet = assemble_sprite_sheet(cleaned_frames)
+        anim_sheet.save(eff_dir / "sheet.png")
         print(f"Saved {len(cleaned_frames)} frames + sheet to {eff_dir}")
 
         # Resize frames to target pixel art sizes

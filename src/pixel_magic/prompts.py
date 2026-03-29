@@ -352,77 +352,24 @@ _EFFECT_ANIMATION_DESCRIPTIONS: dict[str, str] = {
 }
 
 
-def build_effect_reference_prompt(
-    effect_name: str,
-    description: str = "",
-    style: str = "16-bit SNES RPG style",
-    max_colors: int = 16,
-    chromakey_color: str = "pink",
-) -> str:
-    """Build a text-to-image prompt for generating a single effect reference frame."""
-    hex_color = _CHROMAKEY_HEX.get(chromakey_color, "#FF00FF")
-
-    anim_desc = _EFFECT_ANIMATION_DESCRIPTIONS.get(effect_name, "")
-    effect_desc = description or effect_name.replace("_", " ")
-
-    moment = f"Show the effect at its peak/most recognizable state — the single most iconic frame of {effect_desc}"
-    if anim_desc:
-        moment += f". This effect is {anim_desc}"
-
-    prompt: dict[str, Any] = {
-        "image_type": "pixel_art",
-        "style": "front-facing 2D",
-        "purpose": "vfx_effect_reference_frame",
-        "background": {
-            "type": "chromakey",
-            "rule": _background_rule(chromakey_color),
-            "instruction": _background_instruction(chromakey_color),
-        },
-        "effect": {
-            "name": effect_name,
-            "description": f"A pixel art {effect_desc} effect",
-            "moment": moment,
-        },
-        "art_details": {
-            "pixel_density": "medium",
-            "shading": "simple 2-3 tone stepped shading per color area",
-            "outline": (
-                "Every element MUST have a 1-pixel black (#000000) outline — "
-                "all particles, energy shapes, and distinct visual parts must be "
-                "enclosed by a black pixel border with no gaps"
-            ),
-            "anti_aliasing": "none — every edge is a hard pixel step",
-            "max_colors": max_colors,
-            "style_reference": style,
-        },
-        "layout": {
-            "arrangement": f"single centered sprite on solid {chromakey_color} ({hex_color}) background",
-            "no_grid": "do NOT draw a grid, platform, or multiple sprites — just one centered effect",
-        },
-    }
-
-    return json.dumps(prompt, indent=2)
-
-
 def build_effect_animation_prompt(
-    animation_type: str,
+    effect_name: str,
     total_frames: int,
     effect_description: str = "",
     style: str = "16-bit SNES RPG style",
     chromakey_color: str = "pink",
-    loop: bool = True,
+    loop: bool = False,
     grid_cols: int | None = None,
     grid_rows: int | None = None,
 ) -> str:
-    """Build a prompt for effect animation sprite sheet generation.
+    """Build a prompt for single-pass effect animation generation.
 
-    Same canvas approach as character/object animation: slot 1 has the reference,
-    remaining slots filled with chromakey for Gemini to complete.
-    No platforms — effects are floating VFX overlays.
+    All slots are empty — the model generates every frame from scratch.
+    No reference frame, no anchor constraints.
     """
     hex_color = _CHROMAKEY_HEX.get(chromakey_color, "#FF00FF")
     anim_desc = _EFFECT_ANIMATION_DESCRIPTIONS.get(
-        animation_type, f"a {animation_type} animation.",
+        effect_name, f"a {effect_name.replace('_', ' ')} animation.",
     )
 
     if grid_cols and grid_rows:
@@ -435,27 +382,25 @@ def build_effect_animation_prompt(
         effect_line = f"\nThe effect is {effect_description}."
 
     if loop:
-        middle_count = total_frames - 2
-        loop_desc = f"The FIRST and LAST slots both show the same effect state — this is a LOOPING animation. Fill in the {middle_count} middle slots (slots 2–{total_frames - 1}) with animation frames that smoothly transition from the first state, through the full motion, and back to the same state."
-        anchor_rule = f"- Do NOT modify the first or last slot — they are identical anchor frames for the loop\n- The animation must smoothly cycle: frame {total_frames} flows back into frame 1"
+        loop_desc = f"This is a LOOPING animation with {total_frames} frames. Frame 1 and frame {total_frames} must show the same state so the animation cycles seamlessly. Fill all {total_frames} slots with frames that progress through the full motion and return to the start."
     else:
-        loop_desc = f"The FIRST slot contains the starting state. Fill in the remaining {total_frames - 1} slots with animation frames that progress the effect to completion."
-        anchor_rule = "- Do NOT modify the first slot — it is the reference frame, leave it exactly as-is"
+        loop_desc = f"This is a one-shot animation with {total_frames} frames. Frame 1 is the beginning of the effect, frame {total_frames} is the end. The effect should build up, peak, and dissipate across the full sequence."
 
     return f"""\
-This image is a sprite sheet with {layout_desc}. {loop_desc}
+This image is an empty sprite sheet template with {layout_desc}, on a {chromakey_color} ({hex_color}) background. Each slot has a small white number showing its frame position.
+
+Fill EVERY slot with a frame of {anim_desc}
 {effect_line}
 
-Show {anim_desc}
+{loop_desc}
 
 RULES:
+- Draw one animation frame per slot — paint OVER the frame numbers completely
 - Maintain consistent color palette and art style across all frames
-- Each filled slot must show a DIFFERENT state progressing through the animation
-{anchor_rule}
-- Each empty slot has a small white number in the top-left corner showing its frame position — use these numbers to maintain correct animation sequence order
-- Only draw inside the {chromakey_color} areas
-- Keep the {chromakey_color} ({hex_color}) background within each frame slot
+- Each slot must show a DIFFERENT state progressing through the animation
+- Follow the numbered slot order (1, 2, 3...) for correct animation sequence
 - The effect should be centered in each frame
+- Fill the entire slot area with {chromakey_color} ({hex_color}) background around the effect — no leftover guide marks
 - Style: {style}, front-facing 2D view (not isometric — this is a VFX overlay)
 - Pixel art: hard pixel edges, no anti-aliasing, no smoothing
 - 1-pixel black outline on all effect elements (particles, energy shapes, flames, etc.)
