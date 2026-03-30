@@ -6,7 +6,11 @@ Built on Google Gemini's image generation with a canvas-based pipeline that guid
 
 ## Showcase: Ember Depths
 
-Every asset below was generated with a single `pixel-magic` command. This is a fictional roguelike dungeon crawler spanning three biomes — [full showcase details](showcase/README.md).
+<p align="center">
+  <img src="showcase/ember_depths.gif" alt="Ember Depths — animated isometric scene" width="700">
+</p>
+
+Every asset above was generated with a single `pixel-magic` command. This is a fictional roguelike dungeon crawler spanning three biomes — [full showcase details](showcase/README.md) | [live demo](showcase/index.html).
 
 ### Characters
 
