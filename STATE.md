@@ -19,11 +19,11 @@ Bare-bones CLI tool for pixel art generation.
 
 ## What's Not Done Yet
 
-### Bugs & Quality Issues (found during Ember Depths showcase)
+### Bugs & Quality Issues
 
-- [ ] **Resize loses alpha on some objects** — the `--sizes` resize pipeline produces fully opaque (0% transparent) 64x64 PNGs for some objects (ancient_chest, dragon_egg, mine_cart, moss_boulder, mushroom_patch). Native-size sprites have correct transparency. Likely a proper-pixel-art or quantization step drops the alpha channel.
+- [ ] **Resize loses alpha on some objects** — the `--sizes` resize pipeline produces fully opaque (0% transparent) 64x64 PNGs for some objects. Native-size sprites have correct transparency. Likely a proper-pixel-art or quantization step drops the alpha channel.
 - [ ] **Custom preset overwrites** — running `tile --theme custom` or `object --preset custom` multiple times overwrites the same `custom/` directory. Each custom run needs a unique output directory name (e.g., hash of the type names, or a user-provided `--set-name` flag).
-- [ ] **Doubled output paths** — when `--output-dir` already contains a category subdirectory (e.g., `showcase/assets/tiles`), the CLI adds another `tiles/` inside, resulting in `tiles/tiles/custom/`. The output-dir should be the root, not per-category.
+- [ ] **Doubled output paths** — when `--output-dir` already contains a category subdirectory (e.g., `assets/tiles`), the CLI adds another `tiles/` inside, resulting in `tiles/tiles/custom/`. The output-dir should be the root, not per-category.
 - [ ] **Internal outline treatment** — between body parts, armor pieces, etc. — same strip+re-add approach as outer outlines but needs detection of dark linear features between distinct color regions vs. shading/shadows.
 - [ ] **Resolve contour/resize test collection failures** — `test_contour.py` and `test_resize_integration.py` import `_regularize_contours` which no longer exists in `resize.py`.
 
