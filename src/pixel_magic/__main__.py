@@ -242,6 +242,38 @@ def _view_labels(directions: int) -> list[str]:
     return ["back", "back_right", "right", "front_right", "front"]
 
 
+# Maps each generated view to its horizontal mirror counterpart.
+_MIRROR_MAP: dict[str, str] = {
+    "front_left": "front_right",
+    "front_right": "front_left",
+    "back_left": "back_right",
+    "back_right": "back_left",
+    "left": "right",
+    "right": "left",
+}
+
+
+def _mirror_sprites(
+    views_dir: Path,
+    generated_labels: list[str],
+) -> list[str]:
+    """Create horizontally-flipped mirrors for generated views.
+
+    Returns the list of newly created mirror labels.
+    """
+    mirrored_labels: list[str] = []
+    for label in generated_labels:
+        mirror_label = _MIRROR_MAP.get(label)
+        if mirror_label is None or mirror_label in generated_labels:
+            continue
+        src = Image.open(views_dir / f"{label}.png").convert("RGBA")
+        flipped = src.transpose(Image.FLIP_LEFT_RIGHT)
+        flipped.save(views_dir / f"{mirror_label}.png")
+        mirrored_labels.append(mirror_label)
+        print(f"  {mirror_label}: {flipped.width}x{flipped.height} (mirrored from {label})")
+    return mirrored_labels
+
+
 async def _generate(args: argparse.Namespace) -> None:
     from pixel_magic.config import Settings
     from pixel_magic.providers.gemini import GeminiProvider
@@ -299,7 +331,12 @@ async def _generate(args: argparse.Namespace) -> None:
         print(f"Extracted {len(sprites)} sprites to {views_dir}")
 
         actual_labels = [view_labels[i] if i < len(view_labels) else f"view_{i}" for i in range(len(sprites))]
-        _resize_sprites(actual_labels, views_dir, args.sizes, args.num_colors)
+
+        # Mirror generated views to fill remaining directions
+        mirrored = _mirror_sprites(views_dir, actual_labels)
+        all_labels = actual_labels + mirrored
+
+        _resize_sprites(all_labels, views_dir, args.sizes, args.num_colors)
     else:
         print("Warning: could not extract individual sprites from sheet")
 
