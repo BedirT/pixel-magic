@@ -13,8 +13,17 @@ class GenerationConfig:
 
 
 @dataclass
+class UsageStats:
+    """Token usage from a single API call."""
+    prompt_tokens: int = 0
+    candidates_tokens: int = 0
+    total_tokens: int = 0
+
+
+@dataclass
 class GenerationResult:
     image: Image.Image
     prompt_used: str = ""
     model_used: str = ""
     metadata: dict = field(default_factory=dict)
+    usage: UsageStats = field(default_factory=UsageStats)

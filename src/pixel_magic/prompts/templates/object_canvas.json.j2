@@ -1,0 +1,41 @@
+{
+  "image_type": "pixel_art",
+  "style": "isometric",
+  "purpose": "world_object_props",
+  "reference_image": {
+    "description": "The attached image shows exactly {{ object_count }} labeled isometric stone platforms{{ layout_desc }} on {{ chromakey_color }} ({{ hex_color }}) background",
+    "usage": "Each platform shows where to draw the labeled object. Draw one object per platform, standing or sitting on the platform surface. Do not invent extra objects. Any unlabeled area must remain solid {{ chromakey_color }} ({{ hex_color }}) background."
+  },
+  "background": {
+    "type": "chromakey",
+    "rule": "{{ background_rule }}",
+    "instruction": "{{ background_instruction }}"
+  },
+  "objects": [
+    {% for obj in objects %}
+    {
+      "slot": {{ obj.slot }},
+      "label": "{{ obj.label | je }}"
+    }{{ "," if not loop.last }}
+    {% endfor %}
+  ],
+  "variant_rule": "Each object must be visually DISTINCT — different shapes, silhouettes, proportions, and surface details. Do NOT draw the same object twice with minor color changes. Make each one immediately distinguishable at a glance.",
+  "placement": {
+    "grounding": "Each object MUST stand or sit directly ON the platform surface — firmly touching, not floating above",
+    "centering": "Center each object horizontally on its platform",
+    "size": "Objects should be proportional to the platform — tall objects (trees) can extend well above, short objects (rocks, chests) stay compact"
+  },
+  "art_details": {
+    "pixel_density": "medium",
+    "shading": "simple 2-3 tone stepped shading per color area",
+    "outline": "Every element MUST have a 1-pixel black (#000000) outline — the object and all distinct parts must be fully enclosed by a black pixel border with no gaps",
+    "anti_aliasing": "none — every edge is a hard pixel step",
+    "perspective": "isometric 3/4 top-down (~30 degrees from above)",
+    "max_colors": {{ max_colors }},
+    "style_reference": "{{ style | je }}",
+    "lighting": "consistent upper-left light source across all objects"
+  }
+  {% if description %}
+  ,"theme": "{{ description | je }}"
+  {% endif %}
+}

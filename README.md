@@ -1,6 +1,8 @@
 # Pixel Magic
 
-AI-powered pixel art sprite and terrain tile generation CLI built around a Gemini canvas pipeline. It generates isometric character sheets, animation sheets, terrain tilesets, world objects, and VFX effects, then cleans and extracts usable PNG assets.
+AI-powered pixel art asset generation CLI. Feed it a description, get back game-ready sprites — characters, animations, terrain tiles, world objects, and VFX effects.
+
+Built on Google Gemini's image generation with a canvas-based pipeline that guides the AI using template layouts, then cleans and extracts individual sprites automatically.
 
 ## Quick Start
 
@@ -14,39 +16,31 @@ cp .env.example .env
 
 ## Commands
 
-| Command | Purpose |
-|---------|---------|
-| `generate` | Multi-view isometric character sheets |
-| `animate` | Animation frames for existing characters |
-| `animate-object` | Animation frames for existing objects |
-| `tile` | Isometric terrain tilesets |
-| `object` | World objects/props |
-| `effect` | Subjectless VFX animations |
-
-```bash
-# Examples
-pixel-magic generate --name knight --description "medieval knight with silver armor"
-pixel-magic animate --name knight --animation walk --frames 6 --platform
-pixel-magic tile --theme forest --sizes 32,64
-pixel-magic object --preset forest
-pixel-magic animate-object --set forest --name oak_tree --animation sway --frames 5
-pixel-magic effect --name explosion --frames 5
-pixel-magic effect --preset combat
-```
-
-See [`docs/cli.md`](docs/cli.md) for full argument reference and examples.
+| Command | What it makes | Example |
+|---------|--------------|---------|
+| `generate` | Multi-view character sheets | `pixel-magic generate --name knight --description "medieval knight"` |
+| `animate` | Character animation frames | `pixel-magic animate --name knight --animation walk --frames 6` |
+| `animate-object` | Object animation frames | `pixel-magic animate-object --set forest --name oak_tree --animation sway` |
+| `tile` | Terrain tilesets | `pixel-magic tile --theme forest --sizes 32,64` |
+| `object` | World objects/props | `pixel-magic object --preset village` |
+| `effect` | VFX animations | `pixel-magic effect --preset combat` |
 
 ## How It Works
 
-All commands follow a canvas-based pipeline: build a template canvas with guides (platforms, wireframes, labels), Gemini fills in content, a cleanup pass removes guides. Post-processing extracts individual sprites with background removal, mask cleanup, and outline normalization.
+All commands follow a canvas-based pipeline:
 
-See [`docs/process.md`](docs/process.md) for the detailed technical walkthrough.
+1. **Template** — Build a canvas with labeled guides (platforms, wireframes, numbered slots)
+2. **Generate** — Gemini fills in the content guided by structured JSON prompts
+3. **Clean** — A second pass removes guide artifacts
+4. **Extract** — Individual sprites are cut from the sheet with background removal, mask cleanup, and outline normalization
+
+Prompts are Jinja2 JSON templates in [`src/pixel_magic/prompts/templates/`](src/pixel_magic/prompts/templates/) — easy to read, edit, and iterate on independently from code.
 
 ## Docs
 
-- [CLI reference](docs/cli.md) — all commands, arguments, presets, and output structure
-- [Process overview](docs/process.md) — detailed generation pipeline and post-processing stages
-- [Project state](STATE.md) — what works, known limitations, architecture decisions
+- [CLI reference](docs/cli.md) — all commands, arguments, presets, output structure
+- [Process overview](docs/process.md) — detailed pipeline walkthrough
+- [Project state](STATE.md) — what works, limitations, architecture decisions
 
 ## License
 

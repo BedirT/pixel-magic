@@ -1,0 +1,18 @@
+{
+  "task": "cleanup",
+  "purpose": "remove_guides_from_tileset",
+  "input": {
+    "description": "A pixel art tileset with {{ tile_count }} isometric terrain tiles {{ layout_desc }}. Each tile has a text label above it and may have thin black wireframe guide lines."
+  },
+  "action": {
+    "remove": ["text labels", "wireframe guide outlines"],
+    "replace_with": "{{ chromakey_color }} ({{ hex_color }}) background"
+  },
+  "rules": [
+    "Keep the terrain tiles EXACTLY as they are — same textures, colors, shading, pixel art style",
+    "Do NOT modify any terrain tile pixels — only remove the text labels and wireframe guides",
+    "Fill where the labels and guides were with solid {{ chromakey_color }} ({{ hex_color }})",
+    "The output must be the same dimensions as the input",
+    "Maintain the same {{ layout_desc }} layout"
+  ]
+}

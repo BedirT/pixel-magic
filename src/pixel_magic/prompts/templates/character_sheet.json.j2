@@ -1,0 +1,34 @@
+{
+  "image_type": "pixel_art",
+  "style": "isometric",
+  "purpose": "character_sprite_reference_sheet",
+  "background": {
+    "type": "chromakey",
+    "rule": "{{ background_rule }}",
+    "instruction": "{{ background_instruction }}"
+  },
+  "views": {{ views | tojson }},
+  "character": {
+    "description": "{{ character_description | je }}",
+    "pose": "standing idle",
+    "consistency_rule": "Every view must depict the EXACT same character — identical proportions, palette, clothing, accessories, and level of detail. Only the facing direction changes between views."
+  },
+  "art_details": {
+    "pixel_density": "medium",
+    "shading": "simple 2-3 tone stepped shading per color area",
+    "outline": "Every element MUST have a 1-pixel black (#000000) outline — the character, all accessories, weapons, effects (fire, magic, particles), and every separate visual part must be fully enclosed by a black pixel border with no gaps",
+    "anti_aliasing": "none — every edge is a hard pixel step",
+    "perspective": "isometric 3/4 top-down (~30 degrees from above)",
+    "target_resolution_per_view": "{{ resolution }}",
+    "max_colors": {{ max_colors }},
+    "style_reference": "Classic SNES/Genesis pixel art: Final Fantasy Tactics, Tactics Ogre, Chrono Trigger overworld sprites"
+  },
+  "layout": {
+    "arrangement": "horizontal row, evenly spaced, well separated",
+    "spacing": "generous gap between each view so they do not overlap or touch",
+    "centering": "each character view centered vertically in its area"
+  }
+  {% if palette_hint %}
+  ,"color_palette_hint": "{{ palette_hint | je }}"
+  {% endif %}
+}

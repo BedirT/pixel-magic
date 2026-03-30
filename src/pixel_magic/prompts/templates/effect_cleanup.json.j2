@@ -1,0 +1,18 @@
+{
+  "task": "cleanup",
+  "purpose": "remove_guides_from_effect_sheet",
+  "input": {
+    "description": "A pixel art sprite sheet with {{ total_frames }} visual effect frames {{ layout_desc }}. Each frame may have a small white number label used as a guide."
+  },
+  "action": {
+    "remove": ["white frame numbers"],
+    "replace_with": "solid {{ chromakey_color }} ({{ hex_color }}) background"
+  },
+  "rules": [
+    "Keep the visual effect art EXACTLY as it is — same colors, shapes, timing, and pixel art style",
+    "Do NOT modify any effect pixels — only remove the white frame numbers",
+    "Fill where the numbers were with solid {{ chromakey_color }} ({{ hex_color }})",
+    "The output must be the same dimensions as the input",
+    "Maintain the same {{ layout_desc }} frame layout"
+  ]
+}

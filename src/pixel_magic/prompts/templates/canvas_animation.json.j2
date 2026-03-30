@@ -1,0 +1,67 @@
+{
+  "image_type": "sprite_sheet",
+  "purpose": "character_animation",
+  "layout": {
+    "arrangement": "{{ layout_desc }}",
+    "total_frames": {{ total_frames }},
+    "background": {
+      "color": "{{ chromakey_color }}",
+      "hex": "{{ hex_color }}"
+    }
+  },
+  {% if platform %}
+  "platform": {
+    "type": "{{ floor_desc }}",
+    {% if loop %}
+    "slot_description": "The FIRST and LAST slots show a pixel art character standing on {{ floor_desc }}. The {{ middle_count }} middle slots each have the same floor but NO character.",
+    {% else %}
+    "slot_description": "The FIRST slot shows a pixel art character standing on {{ floor_desc }}. The remaining {{ total_frames - 1 }} slots each have the same floor but NO character.",
+    {% endif %}
+    "rules": [
+      "Do NOT modify the stone platforms — draw the character standing ON TOP of them",
+      "The character's feet must rest on the platform surface in every frame",
+      "Maintain the isometric 3/4 top-down perspective — the platform establishes the ground plane"
+      {% if tiles > 1 %}
+      ,"The character has extra floor space — use it for the full range of motion (extended limbs, weapon swings, lunges)"
+      {% endif %}
+    ]
+  },
+  {% endif %}
+  "animation": {
+    "type": "{{ animation_type | je }}",
+    "description": "{{ anim_desc | je }}",
+    {% if loop %}
+    "looping": true,
+    "instruction": "The FIRST and LAST slots both show the same character pose — this is a LOOPING animation. Fill in the {{ middle_count }} middle slots (slots 2–{{ total_frames - 1 }}) with animation frames that smoothly transition from the first pose, through the full motion, and back to the same pose.",
+    "anchor_rule": "Do NOT modify the first or last slot — they are identical anchor poses for the loop. The animation must smoothly cycle: frame {{ total_frames }} flows back into frame 1."
+    {% else %}
+    "looping": false,
+    "instruction": "The FIRST slot contains the starting pose. Fill in the remaining {{ total_frames - 1 }} slots with animation frames.",
+    "anchor_rule": "Do NOT modify the first slot — it is the reference frame, leave it exactly as-is."
+    {% endif %}
+  },
+  {% if character_description %}
+  "character": {
+    "description": "{{ character_description | je }}"
+  },
+  {% endif %}
+  "rules": [
+    "Draw the SAME character {{ 'on each platform' if platform else 'in each slot' }} — identical proportions, colors, outfit, pixel art style",
+    "Each filled slot must show a DIFFERENT pose progressing through the animation",
+    "Each empty slot has a small white number in the top-left corner showing its frame position — use these numbers to maintain correct animation sequence order"
+    {% if not platform %}
+    ,"Only draw inside the {{ chromakey_color }} areas"
+    ,"Keep the {{ chromakey_color }} ({{ hex_color }}) background within each frame slot"
+    {% endif %}
+  ],
+  "art_details": {
+    "style": "{{ style | je }}",
+    "perspective": "isometric 3/4 top-down view",
+    "pixel_art": "hard pixel edges, no anti-aliasing, no smoothing",
+    "outline": "1-pixel black outline on all character elements",
+    "palette": "same color palette across all frames"
+    {% if platform %}
+    ,"background": "{{ chromakey_color }} ({{ hex_color }}) background must remain around the character and platform"
+    {% endif %}
+  }
+}

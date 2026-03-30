@@ -1,0 +1,18 @@
+{
+  "task": "cleanup",
+  "purpose": "remove_platforms_from_animation_sheet",
+  "input": {
+    "description": "A pixel art sprite sheet with {{ total_frames }} character frames {{ layout_desc }} on stone platforms. Some frames have small white numbers in the corner."
+  },
+  "action": {
+    "remove": ["stone platforms", "frame numbers"],
+    "replace_with": "{{ chromakey_color }} ({{ hex_color }}) background"
+  },
+  "rules": [
+    "Keep the characters EXACTLY as they are — same proportions, colors, poses, pixel art style",
+    "Do NOT modify any character pixels — only remove the stone platforms and corner numbers",
+    "Fill where the platforms and numbers were with solid {{ chromakey_color }} ({{ hex_color }})",
+    "The output must be the same dimensions as the input",
+    "Maintain the same {{ layout_desc }} frame layout"
+  ]
+}

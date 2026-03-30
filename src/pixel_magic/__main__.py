@@ -521,11 +521,8 @@ async def _animate_object(args: argparse.Namespace) -> None:
 
 
 async def _effect(args: argparse.Namespace) -> None:
-    from pixel_magic.animate import (
-        assemble_sprite_sheet,
-        build_empty_canvas,
-        extract_frames,
-    )
+    from pixel_magic.animate import assemble_sprite_sheet
+    from pixel_magic.canvas import build_empty_canvas, extract_frames
     from pixel_magic.config import Settings
     from pixel_magic.effect import (
         enforce_loop_closure,
