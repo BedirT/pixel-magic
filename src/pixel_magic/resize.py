@@ -48,7 +48,25 @@ def resize_sprite(
             "Install system OpenCV dependencies before calling resize_sprite."
         ) from exc
 
+    # proper-pixel-art can drop alpha when quantizing colors.
+    # Preserve the original alpha mask and reapply after pixelation.
+    orig_alpha = sprite.getchannel("A")
+
     pixelated = pixelate(sprite, num_colors=num_colors)
+
+    # Ensure RGBA — pixelate may return RGB when alpha is lost
+    pixelated = pixelated.convert("RGBA")
+
+    # Downscale original alpha to match pixelated size and reapply
+    pix_w, pix_h = pixelated.size
+    scaled_alpha = orig_alpha.resize((pix_w, pix_h), Image.NEAREST)
+    # Use the stricter of the two: if pixelate kept some alpha info, AND it
+    # with the original; otherwise just restore the original mask.
+    pix_alpha = pixelated.getchannel("A")
+    merged_alpha = Image.fromarray(
+        np.minimum(np.array(scaled_alpha), np.array(pix_alpha))
+    )
+    pixelated.putalpha(merged_alpha)
 
     # Regularize contours on the small pixelated result
     pixelated = add_outline(pixelated)

@@ -6,7 +6,7 @@ from PIL import Image
 from scipy.ndimage import binary_erosion, label
 
 from pixel_magic.cleanup import cleanup_sprite
-from pixel_magic.resize import _regularize_contours
+from pixel_magic.resize import add_outline
 
 
 def _make_synthetic_sprite(size: int = 40) -> Image.Image:
@@ -58,7 +58,7 @@ class TestCleanedSpriteBinaryAlpha:
         sprite = _make_synthetic_sprite(40)
 
         cleaned = cleanup_sprite(sprite, chromakey_color="green")
-        regularized = _regularize_contours(cleaned)
+        regularized = add_outline(cleaned)
 
         arr = np.array(regularized)
         unique_alpha = set(np.unique(arr[:, :, 3]))
@@ -71,7 +71,7 @@ class TestOuterBoundaryIsDark:
         sprite = _make_synthetic_sprite(40)
 
         cleaned = cleanup_sprite(sprite, chromakey_color="green")
-        regularized = _regularize_contours(cleaned)
+        regularized = add_outline(cleaned)
 
         arr = np.array(regularized)
         opaque = arr[:, :, 3] == 255
@@ -103,7 +103,7 @@ class TestNoChromakeyOnBoundary:
         sprite = _make_synthetic_sprite(40)
 
         cleaned = cleanup_sprite(sprite, chromakey_color="green")
-        regularized = _regularize_contours(cleaned)
+        regularized = add_outline(cleaned)
 
         arr = np.array(regularized)
         opaque = arr[:, :, 3] == 255

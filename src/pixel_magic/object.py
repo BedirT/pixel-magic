@@ -40,7 +40,10 @@ def resolve_object_labels(
         labels = [t.strip() for t in custom_names.split(",") if t.strip()]
         if not labels:
             raise ValueError("--names is required when using --preset custom")
-        return "custom", labels
+        set_name = "_".join(l.replace(" ", "-") for l in labels[:3])
+        if len(labels) > 3:
+            set_name += f"_+{len(labels) - 3}"
+        return set_name, labels
 
     labels = OBJECT_PRESETS.get(preset, [])
     if not labels:

@@ -38,7 +38,10 @@ def resolve_tile_labels(
         labels = [t.strip() for t in custom_types.split(",") if t.strip()]
         if not labels:
             raise ValueError("--types is required when using --theme custom")
-        return "custom", labels
+        set_name = "_".join(l.replace(" ", "-") for l in labels[:3])
+        if len(labels) > 3:
+            set_name += f"_+{len(labels) - 3}"
+        return set_name, labels
 
     labels = TILE_THEMES.get(theme, [])
     if not labels:
