@@ -19,11 +19,29 @@ Bare-bones CLI tool for pixel art generation.
 
 ## What's Not Done Yet
 
-- [ ] Internal outline treatment (between body parts, armor pieces — same strip+re-add as outer outlines)
-- [ ] Atlas packing (combine frames into sprite atlas)
-- [ ] Broader end-to-end / golden-image coverage for generated outputs
-- [ ] Resolve the remaining full-suite collection failures in contour/resize tests
-- [ ] Generate showcase assets for Ember Depths demo (requires Gemini API)
+### Bugs & Quality Issues (found during Ember Depths showcase)
+
+- [ ] **Resize loses alpha on some objects** — the `--sizes` resize pipeline produces fully opaque (0% transparent) 64x64 PNGs for some objects (ancient_chest, dragon_egg, mine_cart, moss_boulder, mushroom_patch). Native-size sprites have correct transparency. Likely a proper-pixel-art or quantization step drops the alpha channel.
+- [ ] **Custom preset overwrites** — running `tile --theme custom` or `object --preset custom` multiple times overwrites the same `custom/` directory. Each custom run needs a unique output directory name (e.g., hash of the type names, or a user-provided `--set-name` flag).
+- [ ] **Doubled output paths** — when `--output-dir` already contains a category subdirectory (e.g., `showcase/assets/tiles`), the CLI adds another `tiles/` inside, resulting in `tiles/tiles/custom/`. The output-dir should be the root, not per-category.
+- [ ] **Internal outline treatment** — between body parts, armor pieces, etc. — same strip+re-add approach as outer outlines but needs detection of dark linear features between distinct color regions vs. shading/shadows.
+- [ ] **Resolve contour/resize test collection failures** — `test_contour.py` and `test_resize_integration.py` import `_regularize_contours` which no longer exists in `resize.py`.
+
+### Missing Features (v0.1 backlog)
+
+- [ ] **More animation types** — missing common RPG animations: hurt, death, dodge, jump, block. The description library only has walk/idle/attack/run/cast.
+- [ ] **Atlas packing** — combine extracted frames into a single sprite atlas PNG + JSON metadata (frame positions, sizes). Standard format for game engines.
+- [ ] **Animated tiles** — tiles with animation frames (flowing water, bubbling lava, flickering torches). Currently tiles are static only.
+- [ ] **Item/inventory generation** — non-isometric item sprites (swords, potions, scrolls) for inventory views. Front-facing 2D, not isometric.
+- [ ] **UI components** — generate pixel art UI elements (buttons, panels, frames, health bars, dialog boxes).
+- [ ] **Library API** — make everything usable programmatically (`from pixel_magic import generate_character`), not just via CLI.
+- [ ] **Sprite viewer** — simple web UI or CLI viewer to display/preview generated sprites and animations.
+
+### Quality & Testing
+
+- [ ] **Broader end-to-end / golden-image test coverage** — validate full pipeline output against reference images.
+- [ ] **Large sprite pixel-art quality** — tiles=4 and tiles=9 sprites come out more painterly than pixel-art at native resolution. The resize to 64x64/128x128 helps but the source is too detailed. May need stronger pixel-art enforcement in prompts for large canvases.
+- [ ] **Prompt regression tests** — verify rendered Jinja2 templates produce semantically equivalent output to the old hardcoded prompts.
 
 ## Known Limitations
 

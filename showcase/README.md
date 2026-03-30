@@ -88,10 +88,17 @@ See [COMMANDS.md](COMMANDS.md) for the exact CLI invocations used to generate ev
 
 ## Gaps Discovered
 
-Things noticed during this showcase generation run:
+Issues and missing features identified during this showcase run — tracked in [STATE.md](../STATE.md):
 
-- **Doubled output paths**: When `--output-dir` already contains a category subdirectory (e.g., `assets/tiles`), the CLI adds another `tiles/` inside, resulting in `tiles/tiles/custom/`. The output-dir should be the root, not per-category.
-- **Tile overwrite on multiple custom themes**: Running `tile --theme custom` three times overwrites `custom/` since all share the same set name. Each custom run should get a unique directory name, or the user should pass `--type` with a set name.
-- **Object overwrite same issue**: Three `object --preset custom` runs overwrite each other's output. Only the last (volcanic) set survives at full quality.
-- **No built-in "hurt" or "death" animations**: The animation description library covers walk/idle/attack/run/cast but missing common RPG animations.
-- **Dragon not particularly pixel-art**: The tiles=4 large sprite comes out more painterly than pixel-art at native resolution. The 64x64 resize helps but the source is quite detailed.
+**Bugs:**
+- Resize pipeline loses alpha on some objects (fully opaque 64x64 PNGs)
+- Multiple `--preset custom` runs overwrite each other's output directory
+- Doubled output paths when `--output-dir` already has a category subdirectory
+
+**Missing features:**
+- No hurt/death/dodge/jump animations in the built-in library
+- No atlas packing, animated tiles, item generation, or UI components yet
+
+**Quality:**
+- Large-tile sprites (tiles=4) come out more painterly than pixel-art
+- Internal outlines (between body parts) still need the strip+re-add treatment
