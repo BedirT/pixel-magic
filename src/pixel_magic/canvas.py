@@ -3,9 +3,17 @@
 from __future__ import annotations
 
 import math
+import re
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
+
+
+def slugify(text: str) -> str:
+    """Sanitize text into a safe filesystem slug (lowercase, alphanum + hyphens)."""
+    text = text.lower().strip()
+    text = re.sub(r"[^a-z0-9]+", "-", text)
+    return text.strip("-") or "unnamed"
 
 
 # Gemini-supported aspect ratios — landscape/square only (w, h)
