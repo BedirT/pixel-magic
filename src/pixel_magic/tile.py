@@ -6,7 +6,7 @@ import math
 
 from PIL import Image
 
-from pixel_magic.canvas import draw_label, extract_frames, grid_layout, pick_image_size, snap_gemini_ratio
+from pixel_magic.canvas import draw_label, extract_frames, grid_layout, pick_image_size, slugify, snap_gemini_ratio
 from pixel_magic.platform import create_tile_outline
 
 # Predefined theme → tile type mappings
@@ -38,7 +38,10 @@ def resolve_tile_labels(
         labels = [t.strip() for t in custom_types.split(",") if t.strip()]
         if not labels:
             raise ValueError("--types is required when using --theme custom")
-        return "custom", labels
+        set_name = "_".join(slugify(l) for l in labels[:3])
+        if len(labels) > 3:
+            set_name += f"_+{len(labels) - 3}"
+        return set_name, labels
 
     labels = TILE_THEMES.get(theme, [])
     if not labels:

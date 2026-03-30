@@ -3,7 +3,7 @@
 import numpy as np
 from PIL import Image
 
-from pixel_magic.resize import _regularize_contours
+from pixel_magic.resize import add_outline
 
 
 def _make_pixelated_sprite(pattern: list[list[tuple]]) -> Image.Image:
@@ -34,7 +34,7 @@ class TestOutlineBoundary:
             [T, T, T, T, T],
         ]
         img = _make_pixelated_sprite(pattern)
-        result = _regularize_contours(img)
+        result = add_outline(img)
         arr = np.array(result)
 
         # All boundary pixels should be black
@@ -52,7 +52,7 @@ class TestOutlineBoundary:
             [T, T, T, T, T],
         ]
         img = _make_pixelated_sprite(pattern)
-        result = _regularize_contours(img)
+        result = add_outline(img)
         arr = np.array(result)
 
         # Center pixel should remain red
@@ -68,7 +68,7 @@ class TestOutlineBoundary:
             [T, T, T, T, T],
         ]
         img = _make_pixelated_sprite(pattern)
-        result = _regularize_contours(img)
+        result = add_outline(img)
         arr = np.array(result)
 
         for y, x in [(1, 1), (1, 2), (1, 3), (2, 1), (2, 3), (3, 1), (3, 2), (3, 3)]:
@@ -83,7 +83,7 @@ class TestOutlineBoundary:
             [T, T, T],
         ]
         img = _make_pixelated_sprite(pattern)
-        result = _regularize_contours(img)
+        result = add_outline(img)
         arr = np.array(result)
 
         assert arr[0, 0, 3] == 0
@@ -101,7 +101,7 @@ class TestOutlineBoundary:
             [T, T, T, T, T, T],
         ]
         img = _make_pixelated_sprite(pattern)
-        result = _regularize_contours(img)
+        result = add_outline(img)
         arr = np.array(result)
 
         assert tuple(arr[2, 3, :3]) == highlight[:3], "Highlight should be preserved"

@@ -1,12 +1,14 @@
 """Integration tests for the full cleanup → pixelate → regularize → resize pipeline."""
 
+from unittest.mock import patch
+
 import numpy as np
 import pytest
 from PIL import Image
 from scipy.ndimage import binary_erosion, label
 
 from pixel_magic.cleanup import cleanup_sprite
-from pixel_magic.resize import _regularize_contours
+from pixel_magic.resize import add_outline, resize_sprite
 
 
 def _make_synthetic_sprite(size: int = 40) -> Image.Image:
@@ -58,7 +60,7 @@ class TestCleanedSpriteBinaryAlpha:
         sprite = _make_synthetic_sprite(40)
 
         cleaned = cleanup_sprite(sprite, chromakey_color="green")
-        regularized = _regularize_contours(cleaned)
+        regularized = add_outline(cleaned)
 
         arr = np.array(regularized)
         unique_alpha = set(np.unique(arr[:, :, 3]))
@@ -71,7 +73,7 @@ class TestOuterBoundaryIsDark:
         sprite = _make_synthetic_sprite(40)
 
         cleaned = cleanup_sprite(sprite, chromakey_color="green")
-        regularized = _regularize_contours(cleaned)
+        regularized = add_outline(cleaned)
 
         arr = np.array(regularized)
         opaque = arr[:, :, 3] == 255
@@ -103,7 +105,7 @@ class TestNoChromakeyOnBoundary:
         sprite = _make_synthetic_sprite(40)
 
         cleaned = cleanup_sprite(sprite, chromakey_color="green")
-        regularized = _regularize_contours(cleaned)
+        regularized = add_outline(cleaned)
 
         arr = np.array(regularized)
         opaque = arr[:, :, 3] == 255
@@ -121,6 +123,45 @@ class TestNoChromakeyOnBoundary:
         green_dominant = g > (np.maximum(r, b).astype(np.int16) + 30)
 
         assert not green_dominant.any(), "Green-dominant pixels found on boundary"
+
+
+class TestResizePreservesAlpha:
+    def test_alpha_survives_pixelate_returning_rgb(self):
+        """Transparency is preserved even when pixelate drops the alpha channel."""
+        # Create an RGBA sprite with a transparent border and opaque center
+        arr = np.zeros((20, 20, 4), dtype=np.uint8)
+        arr[5:15, 5:15] = [120, 80, 60, 255]
+        sprite = Image.fromarray(arr, "RGBA")
+
+        # Mock pixelate to return an RGB image (simulating alpha loss)
+        def fake_pixelate(img, num_colors=None):
+            return img.convert("RGB").resize((10, 10), Image.NEAREST)
+
+        with patch("proper_pixel_art.pixelate.pixelate", side_effect=fake_pixelate):
+            result = resize_sprite(sprite, size=16)
+
+        result_arr = np.array(result)
+        unique_alpha = set(np.unique(result_arr[:, :, 3]))
+        assert 0 in unique_alpha, "Transparent pixels should survive resize"
+        assert 255 in unique_alpha, "Opaque pixels should survive resize"
+
+    def test_alpha_preserved_when_pixelate_keeps_rgba(self):
+        """Transparency is preserved when pixelate returns RGBA correctly."""
+        arr = np.zeros((20, 20, 4), dtype=np.uint8)
+        arr[5:15, 5:15] = [120, 80, 60, 255]
+        sprite = Image.fromarray(arr, "RGBA")
+
+        # Mock pixelate to return RGBA with correct alpha
+        def fake_pixelate(img, num_colors=None):
+            return img.resize((10, 10), Image.NEAREST)
+
+        with patch("proper_pixel_art.pixelate.pixelate", side_effect=fake_pixelate):
+            result = resize_sprite(sprite, size=16)
+
+        result_arr = np.array(result)
+        unique_alpha = set(np.unique(result_arr[:, :, 3]))
+        assert 0 in unique_alpha, "Transparent pixels should survive resize"
+        assert 255 in unique_alpha, "Opaque pixels should survive resize"
 
 
 class TestRegressionComponentIntegrity:

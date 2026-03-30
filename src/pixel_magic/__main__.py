@@ -64,6 +64,18 @@ def _normalize_animation_frames(frames: list[Image.Image]) -> list[Image.Image]:
     return normalized
 
 
+def _output_dir(base: str, category: str, name: str) -> Path:
+    """Build output path, avoiding doubled category directories.
+
+    If base already ends with the category name (e.g. --output-dir assets/tiles
+    for a tile command), don't append it again.
+    """
+    base_path = Path(base)
+    if base_path.name == category:
+        return base_path / name
+    return base_path / category / name
+
+
 def _resize_sprites(
     labels: list[str],
     out_dir: Path,
@@ -137,7 +149,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     anim = sub.add_parser("animate", help="Generate animation frames for an existing character")
     anim.add_argument("--name", required=True, help="Character name (must exist in output dir)")
-    anim.add_argument("--animation", default="walk", help="Animation type (default: walk)")
+    anim.add_argument("--animation", default="walk", help="Animation type: walk, idle, attack, run, cast, hurt, death, dodge, jump, block (default: walk)")
     anim.add_argument("--description", default="", help="Character description (helps model consistency)")
     anim.add_argument("--frames", type=int, default=5, help="Total frames in cycle (default: 5)")
     anim.add_argument("--loop", action="store_true", default=True, help="Looping animation (default)")
@@ -598,9 +610,9 @@ async def _effect(args: argparse.Namespace) -> None:
         # Output directory: effects/{name}/ or effects/{preset}/{name}/
         safe_name = effect_name.replace(" ", "_").replace("/", "_")
         if args.preset:
-            eff_dir = Path(args.output_dir) / "effects" / set_name / safe_name
+            eff_dir = _output_dir(args.output_dir, "effects", set_name) / safe_name
         else:
-            eff_dir = Path(args.output_dir) / "effects" / safe_name
+            eff_dir = _output_dir(args.output_dir, "effects", safe_name)
         eff_dir.mkdir(parents=True, exist_ok=True)
 
         print(f"Generating {effect_name} effect ({args.frames} frames, {'loop' if loop else 'one-shot'})...")
@@ -710,7 +722,7 @@ async def _tile(args: argparse.Namespace) -> None:
         variants=args.variants,
     )
 
-    out_dir = Path(args.output_dir) / "tiles" / set_name
+    out_dir = _output_dir(args.output_dir, "tiles", set_name)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # Build canvas with diamond wireframes
@@ -813,7 +825,7 @@ async def _object(args: argparse.Namespace) -> None:
         variants=args.variants,
     )
 
-    out_dir = Path(args.output_dir) / "objects" / set_name
+    out_dir = _output_dir(args.output_dir, "objects", set_name)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # Build canvas with labeled platforms

@@ -62,6 +62,11 @@ ANIMATION_DESCRIPTIONS: dict[str, str] = {
     "attack": "an attack animation — the character winds up, strikes with their weapon at full extension, then follows through.",
     "run": "a run cycle — similar to walk but faster, with more exaggerated leg extension and body lean.",
     "cast": "a spell casting animation — the character raises their hands, channels energy, and releases a spell.",
+    "hurt": "a hurt/flinch animation — the character recoils from an impact, staggers back with head and torso tilting away from the hit.",
+    "death": "a death animation — the character collapses, falling to the ground and ending in a prone or crumpled pose.",
+    "dodge": "a dodge/evade animation — the character quickly sidesteps or rolls to one side, body low, then recovers to standing.",
+    "jump": "a jump animation — the character crouches, springs upward with arms rising, hangs at the peak, then descends and lands.",
+    "block": "a block/guard animation — the character raises a shield or weapon defensively, bracing for impact with a wide stance.",
 }
 
 OBJECT_ANIMATION_DESCRIPTIONS: dict[str, str] = {
