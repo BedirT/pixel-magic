@@ -28,8 +28,8 @@
   },
   {% endif %}
   "animation": {
-    "type": "{{ animation_type }}",
-    "description": "{{ anim_desc }}",
+    "type": "{{ animation_type | je }}",
+    "description": "{{ anim_desc | je }}",
     {% if loop %}
     "looping": true,
     "instruction": "The FIRST and LAST slots both show the same character pose — this is a LOOPING animation. Fill in the {{ middle_count }} middle slots (slots 2–{{ total_frames - 1 }}) with animation frames that smoothly transition from the first pose, through the full motion, and back to the same pose.",
@@ -42,7 +42,7 @@
   },
   {% if character_description %}
   "character": {
-    "description": "{{ character_description }}"
+    "description": "{{ character_description | je }}"
   },
   {% endif %}
   "rules": [
@@ -55,7 +55,7 @@
     {% endif %}
   ],
   "art_details": {
-    "style": "{{ style }}",
+    "style": "{{ style | je }}",
     "perspective": "isometric 3/4 top-down view",
     "pixel_art": "hard pixel edges, no anti-aliasing, no smoothing",
     "outline": "1-pixel black outline on all character elements",

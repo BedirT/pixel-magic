@@ -15,8 +15,8 @@
     {% for tile in tiles %}
     {
       "slot": {{ tile.slot }},
-      "label": "{{ tile.label }}",
-      "terrain": "{{ tile.terrain }}"
+      "label": "{{ tile.label | je }}",
+      "terrain": "{{ tile.terrain | je }}"
     }{{ "," if not loop.last }}
     {% endfor %}
   ],
@@ -36,7 +36,7 @@
     "anti_aliasing": "none — every edge is a hard pixel step",
     "perspective": "isometric 3/4 top-down (~30 degrees from above)",
     "max_colors": {{ max_colors }},
-    "style_reference": "{{ style }}",
+    "style_reference": "{{ style | je }}",
     "lighting": "consistent upper-left light source across all tiles"
   },
   "tiling_rules": {

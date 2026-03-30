@@ -15,7 +15,7 @@
     {% for obj in objects %}
     {
       "slot": {{ obj.slot }},
-      "label": "{{ obj.label }}"
+      "label": "{{ obj.label | je }}"
     }{{ "," if not loop.last }}
     {% endfor %}
   ],
@@ -32,10 +32,10 @@
     "anti_aliasing": "none — every edge is a hard pixel step",
     "perspective": "isometric 3/4 top-down (~30 degrees from above)",
     "max_colors": {{ max_colors }},
-    "style_reference": "{{ style }}",
+    "style_reference": "{{ style | je }}",
     "lighting": "consistent upper-left light source across all objects"
   }
   {% if description %}
-  ,"theme": "{{ description }}"
+  ,"theme": "{{ description | je }}"
   {% endif %}
 }

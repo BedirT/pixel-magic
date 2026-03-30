@@ -13,7 +13,7 @@
   },
   "views": {{ views | tojson }},
   "character": {
-    "description": "{{ character_description }}",
+    "description": "{{ character_description | je }}",
     "pose": "standing idle",
     "consistency_rule": "Every view must depict the EXACT same character — identical proportions, palette, clothing, accessories, and level of detail. Only the facing direction changes between views."
   },
