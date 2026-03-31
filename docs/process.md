@@ -89,7 +89,7 @@ pixel-magic generates isometric pixel art assets using Gemini image generation. 
                     │  3. Noise filtering     │
                     │  4. Proximity merging   │
                     │  5. Adaptive merge      │
-                    │  6. Sort left-to-right  │
+                    │  6. Sort in reading order │
                     │                         │
                     │  output/<name>/views_raw/│
                     │    <direction>.png      │
@@ -160,7 +160,9 @@ Settings are resolved in priority order:
 
 ### 3. Platform Canvas (default) or Text-Only Prompt
 
-**Platform mode (default):** Builds a canvas image with isometric platforms arranged in a grid. Character generation does not render direction text on the canvas because those labels degrade pixel art quality; direction binding lives in the JSON prompt instead. The canvas is sized directly to a Gemini-supported output shape rather than padded after the fact.
+**Platform mode (default):** Builds a canvas image with isometric platforms arranged in a grid. Character generation does not render direction text on the canvas because those labels degrade pixel art quality; direction binding lives in the JSON prompt instead, using compass-facing names like `north_east` and `south_west`. The canvas is sized directly to a Gemini-supported output shape rather than padded after the fact.
+
+Future TODO: add a small non-text compass template in the canvas corner so orientation stays visible without reintroducing text labels.
 
 **Text-only mode (`--no-platform`):** Builds a JSON-structured prompt with view definitions, art style rules, background instructions, and layout hints. No reference image is sent.
 
@@ -210,7 +212,7 @@ The composite sheet is split into individual view PNGs using connected-component
 
 **Step E: Adaptive Merge** — if the expected view count is known (2 for 4-dir, 5 for 8-dir) and too many blobs remain, the merge gap is progressively increased (8px → 16px → 24px → ...) until the count matches.
 
-**Step F: Sort & Crop** — merged blobs are sorted left-to-right (matching the prompt's view order) and cropped with 2px padding. Each raw sprite is saved to `output/<name>/views_raw/`.
+**Step F: Sort & Crop** — merged blobs are sorted in reading order (top-to-bottom, then left-to-right within each row) to match the prompt's view order, then cropped with 2px padding. Each raw sprite is saved to `output/<name>/views_raw/`.
 
 ### 8. Mask Cleanup + Outline Strip/Re-add
 
@@ -259,13 +261,13 @@ output/
     ├── sheet_cleaned.png # After platform removal (platform mode)
     ├── sheet.png         # Background-removed version
     ├── views/            # Cleaned canonical sprites (binary alpha)
-    │   ├── front_left.png
-    │   ├── back_right.png
+    │   ├── south_west.png
+    │   ├── north_east.png
     │   ├── 32x32/        # True pixel art at 32x32 (if --sizes used)
-    │   │   ├── front_left.png
-    │   │   └── back_right.png
+    │   │   ├── south_west.png
+    │   │   └── north_east.png
     │   └── ...
     └── views_raw/        # Raw extracted sprites (before cleanup)
-        ├── front_left.png
-        └── back_right.png
+        ├── south_west.png
+        └── north_east.png
 ```

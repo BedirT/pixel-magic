@@ -154,7 +154,11 @@ def _build_parser() -> argparse.ArgumentParser:
     anim.add_argument("--frames", type=int, default=5, help="Total frames in cycle (default: 5)")
     anim.add_argument("--loop", action="store_true", default=True, help="Looping animation (default)")
     anim.add_argument("--no-loop", dest="loop", action="store_false", help="One-shot animation (attack, death, etc.)")
-    anim.add_argument("--direction", default="front_right", help="Which view to animate (default: front_right — east-facing works best)")
+    anim.add_argument(
+        "--direction",
+        default="south_east",
+        help="Which compass-facing view to animate (default: south_east — 3/4 facing works best)",
+    )
     anim.add_argument("--reference", default=None, help="Path to reference frame (overrides auto-detect)")
     anim.add_argument("--output-dir", default="output", help="Output directory (default: output)")
     anim.add_argument("--chromakey", choices=["green", "blue"], default=None, help="Chromakey color")
@@ -250,19 +254,70 @@ def _build_parser() -> argparse.ArgumentParser:
 def _view_labels(directions: int) -> list[str]:
     """Return direction labels matching the prompt view order."""
     if directions == 4:
-        return ["front_left", "back_right"]
-    return ["back", "back_right", "right", "front_right", "front"]
+        return ["south_west", "north_east"]
+    return ["north", "north_east", "east", "south_east", "south"]
+
+
+_DIRECTION_ALIASES: dict[str, str] = {
+    "north": "north",
+    "north_east": "north_east",
+    "east": "east",
+    "south_east": "south_east",
+    "south": "south",
+    "south_west": "south_west",
+    "west": "west",
+    "north_west": "north_west",
+    "back": "north",
+    "back_right": "north_east",
+    "right": "east",
+    "front_right": "south_east",
+    "front": "south",
+    "front_left": "south_west",
+    "left": "west",
+    "back_left": "north_west",
+}
 
 
 # Maps each generated view to its horizontal mirror counterpart.
 _MIRROR_MAP: dict[str, str] = {
-    "front_left": "front_right",
-    "front_right": "front_left",
-    "back_left": "back_right",
-    "back_right": "back_left",
-    "left": "right",
-    "right": "left",
+    "south_west": "south_east",
+    "south_east": "south_west",
+    "north_west": "north_east",
+    "north_east": "north_west",
+    "west": "east",
+    "east": "west",
 }
+
+
+def _canonical_direction(direction: str) -> str:
+    """Normalize a view name to the canonical compass-based label."""
+    normalized = direction.strip().lower().replace("-", "_")
+    canonical = _DIRECTION_ALIASES.get(normalized)
+    if canonical is None:
+        valid = ", ".join(sorted({
+            "north", "north_east", "east", "south_east",
+            "south", "south_west", "west", "north_west",
+        }))
+        raise ValueError(f"Unknown direction {direction!r}. Use one of: {valid}")
+    return canonical
+
+
+def _resolve_view_path(views_dir: Path, direction: str) -> Path:
+    """Find a view sprite, preferring canonical compass filenames over legacy names."""
+    canonical = _canonical_direction(direction)
+    candidates = [canonical]
+    candidates.extend(
+        alias
+        for alias, mapped in _DIRECTION_ALIASES.items()
+        if mapped == canonical and alias != canonical
+    )
+
+    for name in candidates:
+        path = views_dir / f"{name}.png"
+        if path.exists():
+            return path
+
+    return views_dir / f"{canonical}.png"
 
 
 def _mirror_sprites(
@@ -439,12 +494,17 @@ async def _animate(args: argparse.Namespace) -> None:
 
     settings = Settings()
     chromakey_color = args.chromakey or settings.chromakey_color
+    try:
+        direction = _canonical_direction(args.direction)
+    except ValueError as exc:
+        print(f"Error: {exc}")
+        sys.exit(2)
 
     # Find reference frame
     if args.reference:
         ref_path = Path(args.reference)
     else:
-        ref_path = Path(args.output_dir) / args.name / "views" / f"{args.direction}.png"
+        ref_path = _resolve_view_path(Path(args.output_dir) / args.name / "views", direction)
 
     if not ref_path.exists():
         print(f"Error: reference frame not found at {ref_path}")

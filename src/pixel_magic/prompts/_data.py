@@ -12,41 +12,41 @@ CHROMAKEY_HEX: dict[str, str] = {
 VIEWS_4DIR: list[dict[str, str]] = [
     {
         "position": "left",
-        "facing": "front-left (3/4 view, south_east)",
-        "description": "Front-facing isometric view — face and chest visible from a 3/4 top-down angle",
+        "facing": "south_west",
+        "description": "Front 3/4 isometric view facing south-west — face and chest visible from above",
     },
     {
         "position": "right",
-        "facing": "back-right (3/4 view, north_east)",
-        "description": "Rear-facing isometric view — back and top of head visible",
+        "facing": "north_east",
+        "description": "Rear 3/4 isometric view facing north-east — back and top of head visible",
     },
 ]
 
 VIEWS_8DIR: list[dict[str, str]] = [
     {
         "position": "far_left",
-        "facing": "back (north)",
-        "description": "Full back view from above — top of head and back visible",
+        "facing": "north",
+        "description": "Full rear isometric view facing north — top of head and back visible",
     },
     {
         "position": "center_left",
-        "facing": "back-right (3/4 view, north_east)",
-        "description": "Rear 3/4 view — back and right shoulder visible from above",
+        "facing": "north_east",
+        "description": "Rear 3/4 isometric view facing north-east — back and right shoulder visible from above",
     },
     {
         "position": "center",
-        "facing": "right (east)",
-        "description": "Side view from above — right profile visible",
+        "facing": "east",
+        "description": "Side isometric view facing east — right profile visible",
     },
     {
         "position": "center_right",
-        "facing": "front-right (3/4 view, south_east)",
-        "description": "Front 3/4 view — face and chest visible from a top-down angle",
+        "facing": "south_east",
+        "description": "Front 3/4 isometric view facing south-east — face and chest visible from above",
     },
     {
         "position": "far_right",
-        "facing": "front (south)",
-        "description": "Front view from above — face and front of body visible",
+        "facing": "south",
+        "description": "Front isometric view facing south — face and front of body visible",
     },
 ]
 

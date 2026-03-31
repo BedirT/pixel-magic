@@ -26,15 +26,15 @@
 Generate multi-view isometric character sheets from a text description. Each character comes out consistent across all angles — ready to drop into a game.
 
 <p align="center">
-  <img src="assets/showcase/char_generation.png" alt="Character generation" width="600"/>
+  <img src="assets/showcase/char_generation.gif" alt="Character generation" width="600"/>
 </p>
 
 ### Animations
 
-Take any generated character and produce animation cycles — walk, idle, attack, cast, run, dodge, and more. Frames stay consistent with the original sprite.
+Starting from the same base character, `animate` can produce grounded loops and stylized one-shots while preserving the original silhouette. Below: a 6-frame walk, a 6-frame attack, and a deliberately impossible phantom-split dodge, all using the maximum frame count we currently support reliably in the pipeline.
 
 <p align="center">
-  <img src="assets/showcase/char_animation.png" alt="Character animation" width="600"/>
+  <img src="assets/showcase/char_animation.gif" alt="Character animation" width="600"/>
 </p>
 
 ### Terrain Tiles
