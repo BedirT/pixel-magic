@@ -130,6 +130,8 @@ def build_canvas(
     chromakey_color: str = "green",
     slot_bg: Image.Image | None = None,
     loop: bool = False,
+    frame_offset: int = 0,
+    loop_frame: Image.Image | None = None,
 ) -> tuple[Image.Image, int, tuple[int, int], str, str]:
     """Build a sprite sheet canvas with frames arranged in a grid.
 
@@ -172,8 +174,8 @@ def build_canvas(
         if slot_bg is not None:
             canvas.paste(slot_bg, (x, y), slot_bg if slot_bg.mode == "RGBA" else None)
 
-        # Frame number centered at top of cell
-        draw_label(canvas, str(idx + 1), cell_x + cell_w // 2, cell_y + 4, cell_w)
+        # Frame number centered at top of cell (offset for multi-batch)
+        draw_label(canvas, str(frame_offset + idx + 1), cell_x + cell_w // 2, cell_y + 4, cell_w)
 
     # Place reference in slot 1 (covers frame number underneath)
     canvas.paste(
@@ -181,14 +183,15 @@ def build_canvas(
         reference_frame if reference_frame.mode == "RGBA" else None,
     )
 
-    # Loop: also place reference in last slot
+    # Loop: place loop target (or reference) in last slot
     if loop:
         last_idx = total_frames - 1
         lx = (last_idx % cols) * cell_w + ox
         ly = (last_idx // cols) * cell_h + oy
+        target = loop_frame if loop_frame is not None else reference_frame
         canvas.paste(
-            reference_frame, (lx, ly),
-            reference_frame if reference_frame.mode == "RGBA" else None,
+            target, (lx, ly),
+            target if target.mode == "RGBA" else None,
         )
 
     return canvas, cols, (slot_w, slot_h), aspect_ratio, image_size
@@ -199,6 +202,7 @@ def build_empty_canvas(
     slot_w: int = 256,
     slot_h: int = 256,
     chromakey_color: str = "pink",
+    frame_offset: int = 0,
 ) -> tuple[Image.Image, int, tuple[int, int], str, str]:
     """Build a grid canvas with numbered empty slots (no reference frame).
 
@@ -226,7 +230,7 @@ def build_empty_canvas(
         row = idx // cols
         cell_x = col * cell_w
         cell_y = row * cell_h
-        draw_label(canvas, str(idx + 1), cell_x + cell_w // 2, cell_y + 4, cell_w)
+        draw_label(canvas, str(frame_offset + idx + 1), cell_x + cell_w // 2, cell_y + 4, cell_w)
 
     return canvas, cols, (cell_w, cell_h), aspect_ratio, image_size
 

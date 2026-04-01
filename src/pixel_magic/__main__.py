@@ -151,7 +151,7 @@ def _build_parser() -> argparse.ArgumentParser:
     anim.add_argument("--name", required=True, help="Character name (must exist in output dir)")
     anim.add_argument("--animation", default="walk", help="Animation type: walk, idle, attack, run, cast, hurt, death, dodge, jump, block (default: walk)")
     anim.add_argument("--description", default="", help="Character description (helps model consistency)")
-    anim.add_argument("--frames", type=int, default=5, help="Total frames in cycle (default: 5)")
+    anim.add_argument("--frames", type=_positive_int, default=6, help="Total frames in animation (default: 6, >6 uses multi-batch)")
     anim.add_argument("--loop", action="store_true", default=True, help="Looping animation (default)")
     anim.add_argument("--no-loop", dest="loop", action="store_false", help="One-shot animation (attack, death, etc.)")
     anim.add_argument(
@@ -175,7 +175,7 @@ def _build_parser() -> argparse.ArgumentParser:
     anim_obj.add_argument("--name", required=True, help="Object name within the set (e.g., oak_tree_1)")
     anim_obj.add_argument("--animation", default="sway", help="Animation type: sway, flicker, burn, pulse, open, bob, spin (default: sway)")
     anim_obj.add_argument("--description", default="", help="Object description (helps model consistency)")
-    anim_obj.add_argument("--frames", type=int, default=5, help="Total frames in cycle (default: 5)")
+    anim_obj.add_argument("--frames", type=_positive_int, default=6, help="Total frames in animation (default: 6, >6 uses multi-batch)")
     anim_obj.add_argument("--loop", action="store_true", default=True, help="Looping animation (default)")
     anim_obj.add_argument("--no-loop", dest="loop", action="store_false", help="One-shot animation (open, etc.)")
     anim_obj.add_argument("--reference", default=None, help="Path to reference frame (overrides auto-detect)")

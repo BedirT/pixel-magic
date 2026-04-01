@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from pathlib import Path
 
 from PIL import Image
@@ -20,6 +21,98 @@ from pixel_magic.canvas import (
 )
 from pixel_magic.prompts import build_canvas_prompt
 from pixel_magic.providers.gemini import GeminiProvider
+
+
+BATCH_SIZE = 6
+OVERLAP = 1
+
+
+@dataclass(frozen=True)
+class BatchInfo:
+    """Describes one batch in a multi-batch animation generation."""
+
+    batch_index: int
+    total_batches: int
+    frame_start: int       # global frame number (1-indexed)
+    frame_end: int         # global frame number (inclusive)
+    batch_frames: int      # number of slots in this batch's canvas
+    is_first: bool
+    is_last: bool
+
+
+def _compute_batches(
+    total_frames: int,
+    batch_size: int = BATCH_SIZE,
+    loop: bool = False,
+) -> list[BatchInfo]:
+    """Compute batch descriptors for multi-batch animation.
+
+    Batch 0 produces batch_size frames. Each subsequent batch overlaps by 1
+    frame (the last frame of the previous batch becomes the first/reference
+    frame of the next).
+
+    When loop=True, ensures the last batch has at least 3 frames so there is
+    always at least one fillable slot for Gemini to generate the loop-closure
+    transition (overlap + fill + loop anchor).
+    """
+    if total_frames <= batch_size:
+        return [BatchInfo(
+            batch_index=0, total_batches=1,
+            frame_start=1, frame_end=total_frames,
+            batch_frames=total_frames,
+            is_first=True, is_last=True,
+        )]
+
+    batches: list[BatchInfo] = []
+    new_per_batch = batch_size - OVERLAP
+    n_batches = 1 + math.ceil((total_frames - batch_size) / new_per_batch)
+
+    for i in range(n_batches):
+        if i == 0:
+            start = 1
+            end = batch_size
+        else:
+            start = batch_size + (i - 1) * new_per_batch
+            end = min(start + new_per_batch, total_frames)
+
+        batch_frames = end - start + 1
+        batches.append(BatchInfo(
+            batch_index=i,
+            total_batches=n_batches,
+            frame_start=start,
+            frame_end=end,
+            batch_frames=batch_frames,
+            is_first=(i == 0),
+            is_last=(i == n_batches - 1),
+        ))
+
+    # For looping animations, ensure the last batch has at least 3 frames
+    # (1 overlap + 1+ fillable + 1 loop anchor). If it has ≤2, shrink the
+    # penultimate batch by 1 to give the last batch room.
+    if loop and len(batches) > 1 and batches[-1].batch_frames <= 2:
+        prev = batches[-2]
+        last = batches[-1]
+        new_split = prev.frame_end - 1  # penultimate ends 1 frame earlier
+        batches[-2] = BatchInfo(
+            batch_index=prev.batch_index,
+            total_batches=prev.total_batches,
+            frame_start=prev.frame_start,
+            frame_end=new_split,
+            batch_frames=new_split - prev.frame_start + 1,
+            is_first=prev.is_first,
+            is_last=False,
+        )
+        batches[-1] = BatchInfo(
+            batch_index=last.batch_index,
+            total_batches=last.total_batches,
+            frame_start=new_split,
+            frame_end=last.frame_end,
+            batch_frames=last.frame_end - new_split + 1,
+            is_first=False,
+            is_last=True,
+        )
+
+    return batches
 
 
 def _generation_grid_layout(n_views: int) -> tuple[int, int, bool]:
@@ -162,6 +255,150 @@ def build_generation_canvas(
     return canvas, cols, (cell_w, cell_h), aspect_ratio, image_size, center_bottom
 
 
+async def _generate_single_batch(
+    provider: GeminiProvider,
+    reference_frame: Image.Image,
+    animation_type: str,
+    batch_frames: int,
+    loop: bool,
+    character_description: str,
+    style: str,
+    chromakey_color: str,
+    platform: bool,
+    tiles: int,
+    subject: str,
+    slot_bg: Image.Image | None,
+    frame_offset: int = 0,
+    batch_index: int = 0,
+    total_batches: int = 1,
+    global_total_frames: int | None = None,
+    is_final_batch: bool = False,
+    prev_sheet: Image.Image | None = None,
+    loop_target: Image.Image | None = None,
+    save_dir: Path | None = None,
+    batch_label: str = "",
+) -> tuple[list[Image.Image], Image.Image]:
+    """Generate a single batch of animation frames.
+
+    Returns (extracted_frames, raw_sheet) where raw_sheet is the completed
+    sprite sheet image for this batch (used as context for the next batch).
+    """
+    # Determine whether this batch's canvas should have a loop anchor in the last slot.
+    # - Single-batch (first + last): use reference_frame in last slot (original behavior)
+    # - Multi-batch final: use loop_target (original frame 1) in last slot
+    # - All other batches: no loop anchor
+    is_first = batch_index == 0
+    if is_final_batch and loop and is_first:
+        # Single-batch loop: reference_frame goes in both first and last slot
+        batch_loop = True
+    elif is_final_batch and loop and loop_target is not None:
+        # Multi-batch final: loop_target (original pose) goes in last slot
+        batch_loop = True
+    else:
+        batch_loop = False
+
+    canvas, grid_cols, slot_size, aspect_ratio, image_size = build_canvas(
+        reference_frame, batch_frames, chromakey_color,
+        slot_bg=slot_bg, loop=batch_loop, frame_offset=frame_offset,
+        loop_frame=loop_target,
+    )
+    grid_rows = math.ceil(batch_frames / grid_cols)
+
+    # Use backward-compatible names for single-batch generation
+    if save_dir:
+        if total_batches == 1:
+            canvas.save(save_dir / "canvas_input.png")
+        else:
+            canvas.save(save_dir / f"batch_{batch_index}_canvas.png")
+
+    print(f"  {batch_label}Canvas: {canvas.width}x{canvas.height} ({grid_cols}x{grid_rows} grid, {batch_frames} frames)")
+    print(f"  {batch_label}Gemini: {aspect_ratio} ratio, {image_size} output, slot={slot_size[0]}x{slot_size[1]}")
+
+    # Build prompt with batch context
+    if subject == "object":
+        from pixel_magic.prompts import build_object_animation_prompt
+
+        prompt = build_object_animation_prompt(
+            animation_type=animation_type,
+            total_frames=batch_frames,
+            object_description=character_description,
+            style=style,
+            chromakey_color=chromakey_color,
+            platform=platform,
+            loop=batch_loop,
+            tiles=tiles,
+            grid_cols=grid_cols,
+            grid_rows=grid_rows,
+            batch_index=batch_index,
+            total_batches=total_batches,
+            global_total_frames=global_total_frames,
+            is_final_batch=is_final_batch,
+        )
+    else:
+        prompt = build_canvas_prompt(
+            animation_type=animation_type,
+            total_frames=batch_frames,
+            character_description=character_description,
+            style=style,
+            chromakey_color=chromakey_color,
+            platform=platform,
+            loop=batch_loop,
+            tiles=tiles,
+            grid_cols=grid_cols,
+            grid_rows=grid_rows,
+            batch_index=batch_index,
+            total_batches=total_batches,
+            global_total_frames=global_total_frames,
+            is_final_batch=is_final_batch,
+        )
+
+    # Batch 0: single image. Batch 1+: [prev_sheet, canvas]
+    images: list[Image.Image] = []
+    if prev_sheet is not None:
+        images.append(prev_sheet)
+    images.append(canvas)
+
+    print(f"  {batch_label}Generating sprite sheet ({len(images)} image(s))...")
+    result = await provider.generate_with_images(
+        prompt=prompt,
+        images=images,
+        aspect_ratio=aspect_ratio,
+        image_size=image_size,
+    )
+
+    if save_dir:
+        suffix = "sheet_raw.png" if total_batches == 1 else f"batch_{batch_index}_sheet_raw.png"
+        result.image.save(save_dir / suffix)
+
+    # Platform removal pass
+    if platform:
+        from pixel_magic.prompts import build_platform_removal_prompt
+
+        removal_prompt = build_platform_removal_prompt(
+            batch_frames, chromakey_color,
+            grid_cols=grid_cols,
+            grid_rows=grid_rows,
+        )
+        print(f"  {batch_label}Removing platforms (2nd pass)...")
+        cleaned = await provider.generate_with_images(
+            prompt=removal_prompt,
+            images=[result.image],
+            aspect_ratio=aspect_ratio,
+            image_size=image_size,
+        )
+        if save_dir:
+            suffix = "sheet_cleaned.png" if total_batches == 1 else f"batch_{batch_index}_sheet_cleaned.png"
+            cleaned.image.save(save_dir / suffix)
+        result = cleaned
+
+    sheet = result.image
+    if sheet.size != canvas.size:
+        sheet = sheet.resize(canvas.size, Image.NEAREST)
+
+    frames = extract_frames(sheet, batch_frames, cols=grid_cols, slot_size=slot_size)
+    return frames, sheet
+
+
 async def generate_animation(
     provider: GeminiProvider,
     reference_frame: Image.Image,
@@ -178,12 +415,9 @@ async def generate_animation(
 ) -> list[Image.Image]:
     """Generate animation by filling a pre-built sprite sheet canvas.
 
-    1. Build a canvas: frame 1 in slot 1, green fill in remaining slots
-    2. Send canvas + prompt to Gemini asking it to fill in the green slots
-    3. Extract individual frames from the result
-
-    If platform=True, each slot gets an isometric platform tile to establish
-    the ground plane and perspective. Platforms are cropped off after generation.
+    For <= 6 frames, generates in a single batch (unchanged behavior).
+    For > 6 frames, splits into multiple 6-frame batches chained by
+    overlapping the last frame of each batch as the reference for the next.
 
     Returns an ordered list of total_frames PIL Images.
     """
@@ -191,98 +425,77 @@ async def generate_animation(
         save_dir.mkdir(parents=True, exist_ok=True)
 
     # Platform mode: composite character onto platform tile
-    crop_h = None
     slot_bg = None
     if platform:
         from pixel_magic.platform import composite_on_platform
 
-        ref_composite, slot_bg, crop_h = composite_on_platform(reference_frame, tiles=tiles)
+        ref_composite, slot_bg, _crop_h = composite_on_platform(reference_frame, tiles=tiles)
     else:
         ref_composite = reference_frame
 
-    # Build canvas (handles grid layout, padding, centering)
-    canvas, grid_cols, slot_size, aspect_ratio, image_size = build_canvas(
-        ref_composite, total_frames, chromakey_color, slot_bg=slot_bg, loop=loop,
-    )
-    grid_rows = math.ceil(total_frames / grid_cols)
+    batches = _compute_batches(total_frames, loop=loop)
 
-    if save_dir:
-        canvas.save(save_dir / "canvas_input.png")
+    if len(batches) > 1:
+        print(f"  Multi-batch: {len(batches)} batches for {total_frames} frames")
 
-    print(f"  Canvas: {canvas.width}x{canvas.height} ({grid_cols}x{grid_rows} grid, {total_frames} frames)")
-    print(f"  Gemini: {aspect_ratio} ratio, {image_size} output, slot={slot_size[0]}x{slot_size[1]}")
+    all_frames: list[Image.Image] = []
+    prev_sheet: Image.Image | None = None
 
-    # Generate
-    if subject == "object":
-        from pixel_magic.prompts import build_object_animation_prompt
+    for batch in batches:
+        batch_label = f"[Batch {batch.batch_index + 1}/{batch.total_batches}] " if batch.total_batches > 1 else ""
 
-        prompt = build_object_animation_prompt(
+        # Reference frame for this batch's canvas slot 1.
+        # All batches must use the same slot dimensions as batch 0 so that
+        # slot_bg, loop_target, and grid layout stay consistent.
+        if batch.is_first:
+            batch_ref = ref_composite
+        else:
+            # The extracted overlap frame has the correct slot dimensions but
+            # a baked-in chromakey background. Strip it to transparent so it
+            # composites cleanly over slot_bg (platform) in build_canvas.
+            # Do NOT crop or re-composite — that would change the slot size.
+            from pixel_magic.background import remove_background
+
+            batch_ref = remove_background(all_frames[-1], chromakey_color=chromakey_color)
+
+        # For loop closure: provide original frame 1 to last batch
+        loop_target = None
+        if batch.is_last and loop and not batch.is_first:
+            loop_target = ref_composite
+
+        batch_frames, batch_sheet = await _generate_single_batch(
+            provider=provider,
+            reference_frame=batch_ref,
             animation_type=animation_type,
-            total_frames=total_frames,
-            object_description=character_description,
-            style=style,
-            chromakey_color=chromakey_color,
-            platform=platform,
+            batch_frames=batch.batch_frames,
             loop=loop,
-            tiles=tiles,
-            grid_cols=grid_cols,
-            grid_rows=grid_rows,
-        )
-    else:
-        prompt = build_canvas_prompt(
-            animation_type=animation_type,
-            total_frames=total_frames,
             character_description=character_description,
             style=style,
             chromakey_color=chromakey_color,
             platform=platform,
-            loop=loop,
             tiles=tiles,
-            grid_cols=grid_cols,
-            grid_rows=grid_rows,
+            subject=subject,
+            slot_bg=slot_bg,
+            frame_offset=batch.frame_start - 1,
+            batch_index=batch.batch_index,
+            total_batches=batch.total_batches,
+            global_total_frames=total_frames,
+            is_final_batch=batch.is_last,
+            prev_sheet=prev_sheet,
+            loop_target=loop_target,
+            save_dir=save_dir,
+            batch_label=batch_label,
         )
 
-    print("  Generating sprite sheet...")
-    result = await provider.generate_with_images(
-        prompt=prompt,
-        images=[canvas],
-        aspect_ratio=aspect_ratio,
-        image_size=image_size,
-    )
+        # Collect frames: skip overlap frame for batch 1+ (it's a duplicate)
+        if batch.is_first:
+            all_frames.extend(batch_frames)
+        else:
+            all_frames.extend(batch_frames[1:])
 
-    # Save raw result
-    if save_dir:
-        result.image.save(save_dir / "sheet_raw.png")
+        prev_sheet = batch_sheet
 
-    # Second pass: ask Gemini to remove platforms
-    if platform:
-        from pixel_magic.prompts import build_platform_removal_prompt
-
-        removal_prompt = build_platform_removal_prompt(
-            total_frames, chromakey_color,
-            grid_cols=grid_cols,
-            grid_rows=grid_rows,
-        )
-        print("  Removing platforms (2nd pass)...")
-        cleaned = await provider.generate_with_images(
-            prompt=removal_prompt,
-            images=[result.image],
-            aspect_ratio=aspect_ratio,
-            image_size=image_size,
-        )
-        if save_dir:
-            cleaned.image.save(save_dir / "sheet_cleaned.png")
-        result = cleaned
-
-    # Resize output to match our canvas dims if Gemini changed them
-    sheet = result.image
-    if sheet.size != canvas.size:
-        sheet = sheet.resize(canvas.size, Image.NEAREST)
-
-    # Extract frames (centered within cells)
-    frames = extract_frames(sheet, total_frames, cols=grid_cols, slot_size=slot_size)
-
-    return frames
+    return all_frames
 
 
 def assemble_sprite_sheet(frames: list[Image.Image]) -> Image.Image:

@@ -62,6 +62,10 @@ def build_canvas_prompt(
     tiles: int = 1,
     grid_cols: int | None = None,
     grid_rows: int | None = None,
+    batch_index: int = 0,
+    total_batches: int = 1,
+    global_total_frames: int | None = None,
+    is_final_batch: bool = False,
 ) -> str:
     """Build a prompt for canvas-based sprite sheet generation."""
     hex_color = CHROMAKEY_HEX.get(chromakey_color, "#00FF00")
@@ -97,6 +101,10 @@ def build_canvas_prompt(
         anim_desc=anim_desc,
         middle_count=middle_count,
         floor_desc=floor_desc,
+        batch_index=batch_index,
+        total_batches=total_batches,
+        global_total_frames=global_total_frames or total_frames,
+        is_final_batch=is_final_batch,
     )
 
 
@@ -116,6 +124,10 @@ def build_object_animation_prompt(
     tiles: int = 1,
     grid_cols: int | None = None,
     grid_rows: int | None = None,
+    batch_index: int = 0,
+    total_batches: int = 1,
+    global_total_frames: int | None = None,
+    is_final_batch: bool = False,
 ) -> str:
     """Build a prompt for object animation sprite sheet generation."""
     hex_color = CHROMAKEY_HEX.get(chromakey_color, "#FF00FF")
@@ -153,6 +165,10 @@ def build_object_animation_prompt(
         anim_desc=anim_desc,
         middle_count=middle_count,
         floor_desc=floor_desc,
+        batch_index=batch_index,
+        total_batches=total_batches,
+        global_total_frames=global_total_frames or total_frames,
+        is_final_batch=is_final_batch,
     )
 
 
