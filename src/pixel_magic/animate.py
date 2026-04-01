@@ -157,6 +157,8 @@ def build_generation_canvas(
         plat_y = cell_y + plat_y_in_cell
         canvas.paste(platform, (plat_x, plat_y), platform)
 
+    # TODO: add a small compass template in the canvas corner so generated
+    # views can communicate orientation without relying on text labels.
     return canvas, cols, (cell_w, cell_h), aspect_ratio, image_size, center_bottom
 
 

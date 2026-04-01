@@ -22,7 +22,8 @@ def extract_sprites(
 
     Uses connected-component labeling on non-transparent pixels, then merges
     nearby blobs (parts of the same character that have small gaps), filters
-    noise, and returns cropped sprites sorted left-to-right.
+    noise, and returns cropped sprites in reading order (top-to-bottom, then
+    left-to-right within each row).
 
     Args:
         image: RGBA sheet image.
@@ -68,8 +69,9 @@ def extract_sprites(
     # Merge nearby blobs that likely belong to the same character
     boxes = _merge_nearby(boxes, gap_threshold)
 
-    # Sort left-to-right
-    boxes.sort(key=lambda b: b[0])
+    # Sort in row-major order so centered lower rows don't interleave with
+    # sprites from the row above.
+    boxes = _sort_boxes_reading_order(boxes)
 
     # If we have expected count and too many boxes, increase merge aggressiveness
     if expected_count and len(boxes) > expected_count:
@@ -78,8 +80,7 @@ def extract_sprites(
             merged = _merge_nearby(boxes, gap)
             if len(merged) <= expected_count:
                 break
-        boxes = merged
-        boxes.sort(key=lambda b: b[0])
+        boxes = _sort_boxes_reading_order(merged)
 
     # Crop each sprite with padding
     h, w = arr.shape[:2]
@@ -134,3 +135,37 @@ def _merge_nearby(
             used.add(i)
         merged = new_merged
     return merged
+
+
+def _sort_boxes_reading_order(
+    boxes: list[tuple[int, int, int, int, int]],
+) -> list[tuple[int, int, int, int, int]]:
+    """Sort sprites by row, then left-to-right within each row."""
+    if len(boxes) <= 1:
+        return boxes
+
+    row_threshold = max(8, int(np.median([y1 - y0 for _, y0, _, y1, _ in boxes]) * 0.5))
+
+    annotated = [
+        (x0, y0, x1, y1, area, (y0 + y1) / 2)
+        for x0, y0, x1, y1, area in boxes
+    ]
+    annotated.sort(key=lambda b: b[5])
+
+    rows: list[list[tuple[int, int, int, int, int, float]]] = []
+    row_centers: list[float] = []
+    for box in annotated:
+        center_y = box[5]
+        if not rows or abs(center_y - row_centers[-1]) > row_threshold:
+            rows.append([box])
+            row_centers.append(center_y)
+            continue
+
+        rows[-1].append(box)
+        row_centers[-1] = sum(item[5] for item in rows[-1]) / len(rows[-1])
+
+    ordered: list[tuple[int, int, int, int, int]] = []
+    for row in rows:
+        row.sort(key=lambda b: b[0])
+        ordered.extend((x0, y0, x1, y1, area) for x0, y0, x1, y1, area, _ in row)
+    return ordered

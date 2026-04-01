@@ -107,11 +107,11 @@ output/<name>/
 ├── canvas_input.png        # Platform-guided input canvas (platform mode only)
 ├── sheet_cleaned.png       # Guide cleanup output (platform mode only)
 ├── views/
-│   ├── front_left.png
-│   └── back_right.png
+│   ├── south_west.png
+│   └── north_east.png
 └── views_raw/
-    ├── front_left.png
-    └── back_right.png
+    ├── south_west.png
+    └── north_east.png
 ```
 
 If you pass `--sizes`, resized variants are written under `views/<size>x<size>/`.
@@ -138,7 +138,7 @@ pixel-magic animate --name <name> --animation <type> [options]
 | `--description "<desc>"` | *(none)* | Extra character description to improve consistency. |
 | `--frames <n>` | `5` | Total number of frames in the cycle. |
 | `--loop` / `--no-loop` | `--loop` | Generate a looping or one-shot sequence. |
-| `--direction <dir>` | `front_right` | Which extracted character view to animate. |
+| `--direction <dir>` | `south_east` | Which extracted character view to animate. Compass names like `north_east`, `south`, and `west` are canonical. |
 | `--reference <path>` | *(auto-detect)* | Use a custom reference image instead of the generated view. |
 | `--output-dir <path>` | `output` | Root output directory. |
 | `--chromakey {green,blue}` | from `.env` | Override the chromakey used during cleanup. |
@@ -167,6 +167,7 @@ pixel-magic animate \
   --name samurai \
   --animation cast \
   --frames 4 \
+  --direction south_east \
   --reference path/to/reference.png \
   --no-loop
 ```
