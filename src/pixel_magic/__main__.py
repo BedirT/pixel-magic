@@ -48,6 +48,31 @@ def _clean_tile(image: Image.Image, chromakey_color: str) -> Image.Image:
     return cleanup_tile(image, chromakey_color=chromakey_color)
 
 
+def _scale_and_normalize_frames(frames: list[Image.Image]) -> list[Image.Image]:
+    """Scale generated frames to match the reference, then pad with bottom-center anchoring.
+
+    Frame 0 is the cleaned reference — its height sets the target scale.
+    Generated frames (1+) are rescaled so their height matches the reference,
+    preserving aspect ratio. Then all frames are padded to a uniform bounding box.
+    """
+    if len(frames) < 2:
+        return frames
+
+    ref = frames[0]
+    ref_h = ref.height
+
+    scaled: list[Image.Image] = [ref]
+    for f in frames[1:]:
+        if f.height != ref_h and f.height > 0:
+            scale = ref_h / f.height
+            new_w = max(1, round(f.width * scale))
+            new_h = ref_h
+            f = f.resize((new_w, new_h), Image.NEAREST)
+        scaled.append(f)
+
+    return _normalize_animation_frames(scaled)
+
+
 def _normalize_animation_frames(frames: list[Image.Image]) -> list[Image.Image]:
     """Pad all frames to the same size with bottom-center anchoring."""
     if not frames:
@@ -98,6 +123,7 @@ def _resize_sprites(
             resized.save(size_dir / f"{safe_name}.png")
         print(f"  Resized to {size}x{size}")
     print(f"Saved {len(sizes)} size variants")
+
 
 
 def _anim_dir_slug(description: str) -> str:
@@ -164,8 +190,7 @@ def _build_parser() -> argparse.ArgumentParser:
     anim.add_argument("--name", required=True, help="Character name (must exist in output dir)")
     anim.add_argument("--animation-description", required=True, help="Natural-language description of the animation (e.g. 'a walk cycle — legs alternating, arms swinging')")
     anim.add_argument("--description", default="", help="Character description (helps model consistency)")
-    anim.add_argument("--frames", type=_positive_int, default=6, help="Total frames in animation (default: 6, >6 uses multi-batch)")
-    anim.add_argument("--frame-poses", nargs="+", default=None, help="Optional per-frame pose descriptions for fillable slots")
+    anim.add_argument("--frame-poses", nargs="+", required=True, help="Per-frame pose descriptions (one Gemini call per pose, e.g. 'arm pulls back' 'sword swings forward')")
     anim.add_argument("--loop", action="store_true", default=True, help="Looping animation (default)")
     anim.add_argument("--no-loop", dest="loop", action="store_false", help="One-shot animation (attack, death, etc.)")
     anim.add_argument(
@@ -177,40 +202,19 @@ def _build_parser() -> argparse.ArgumentParser:
     anim.add_argument("--output-dir", default="output", help="Output directory (default: output)")
     anim.add_argument("--chromakey", choices=["green", "blue"], default=None, help="Chromakey color")
     anim.add_argument("--style", default="16-bit SNES RPG style", help="Art style")
-    anim.add_argument("--platform", action="store_true", default=False, help="Add isometric platform tiles for perspective reference")
-    anim.add_argument("--no-platform", dest="platform", action="store_false", help="No platform (default)")
-    anim.add_argument(
-        "--tiles", type=int, default=1, choices=[1, 4, 9],
-        help="Platform tile count: 1 (default), 4 (2x2 grid), 9 (3x3 grid). More tiles = more room for action poses.",
-    )
-    anim.add_argument(
-        "--padding", type=float, default=0.2,
-        help="Slot padding fraction for pose overflow room (default: 0.2 = 20%% extra per side)",
-    )
 
     anim_obj = sub.add_parser("animate-object", help="Generate animation frames for an existing object")
     anim_obj.add_argument("--set", required=True, help="Object set name (e.g., forest, torch)")
     anim_obj.add_argument("--name", required=True, help="Object name within the set (e.g., oak_tree_1)")
     anim_obj.add_argument("--animation-description", required=True, help="Natural-language description of the animation (e.g. 'gentle swaying in wind')")
     anim_obj.add_argument("--description", default="", help="Object description (helps model consistency)")
-    anim_obj.add_argument("--frames", type=_positive_int, default=6, help="Total frames in animation (default: 6, >6 uses multi-batch)")
-    anim_obj.add_argument("--frame-poses", nargs="+", default=None, help="Optional per-frame pose descriptions for fillable slots")
+    anim_obj.add_argument("--frame-poses", nargs="+", required=True, help="Per-frame pose descriptions (one Gemini call per pose, e.g. 'flame leans left' 'flame stands tall')")
     anim_obj.add_argument("--loop", action="store_true", default=True, help="Looping animation (default)")
     anim_obj.add_argument("--no-loop", dest="loop", action="store_false", help="One-shot animation (open, etc.)")
     anim_obj.add_argument("--reference", default=None, help="Path to reference frame (overrides auto-detect)")
     anim_obj.add_argument("--output-dir", default="output", help="Output directory (default: output)")
     anim_obj.add_argument("--chromakey", choices=["green", "blue", "pink"], default=None, help="Chromakey color (default: pink)")
     anim_obj.add_argument("--style", default="16-bit SNES RPG style", help="Art style")
-    anim_obj.add_argument("--platform", action="store_true", default=False, help="Add isometric platform for perspective")
-    anim_obj.add_argument("--no-platform", dest="platform", action="store_false", help="No platform (default)")
-    anim_obj.add_argument(
-        "--tiles", type=int, default=1, choices=[1, 4, 9],
-        help="Platform tile count: 1 (default), 4 (2x2 grid), 9 (3x3 grid).",
-    )
-    anim_obj.add_argument(
-        "--padding", type=float, default=0.2,
-        help="Slot padding fraction for pose overflow room (default: 0.2 = 20%% extra per side)",
-    )
     anim_obj.add_argument(
         "--sizes", default="",
         help='Resize frames to pixel art sizes (e.g. "32,64" or "all")',
@@ -540,32 +544,26 @@ async def _animate(args: argparse.Namespace) -> None:
         model=settings.gemini_image_model,
     )
 
-    # --tiles > 1 implies --platform
-    if args.tiles > 1:
-        args.platform = True
-
+    total_frames = len(args.frame_poses) + 1
     anim_dir = Path(args.output_dir) / args.name / "animations" / _anim_dir_slug(args.animation_description)
-    print(f"Generating {args.frames}-frame animation...")
+    print(f"Generating {total_frames}-frame animation ({len(args.frame_poses)} poses + reference)...")
 
     raw_frames = await generate_animation(
         provider=provider,
         reference_frame=reference,
         animation_description=args.animation_description,
-        total_frames=args.frames,
+        frame_poses=args.frame_poses,
         loop=args.loop,
         character_description=args.description,
         style=args.style,
         chromakey_color=chromakey_color,
         save_dir=anim_dir,
-        platform=args.platform,
-        tiles=args.tiles,
-        frame_poses=args.frame_poses,
-        padding=args.padding,
+        direction=direction,
     )
 
     # Clean each frame (background removal + outline strip/re-add)
     cleaned_frames = [_clean_sprite(frame, chromakey_color) for frame in raw_frames]
-    cleaned_frames = _normalize_animation_frames(cleaned_frames)
+    cleaned_frames = _scale_and_normalize_frames(cleaned_frames)
     for i, frame in enumerate(cleaned_frames, 1):
         frame.save(anim_dir / f"frame_{i:02d}.png")
 
@@ -602,32 +600,26 @@ async def _animate_object(args: argparse.Namespace) -> None:
         model=settings.gemini_image_model,
     )
 
-    if args.tiles > 1:
-        args.platform = True
-
     safe_name = args.name.replace(" ", "_").replace("/", "_")
+    total_frames = len(args.frame_poses) + 1
     anim_dir = Path(args.output_dir) / "objects" / args.set / "animations" / safe_name / _anim_dir_slug(args.animation_description)
-    print(f"Generating {args.frames}-frame animation for {args.name}...")
+    print(f"Generating {total_frames}-frame animation for {args.name} ({len(args.frame_poses)} poses + reference)...")
 
     raw_frames = await generate_animation(
         provider=provider,
         reference_frame=reference,
         animation_description=args.animation_description,
-        total_frames=args.frames,
+        frame_poses=args.frame_poses,
         loop=args.loop,
         character_description=args.description,
         style=args.style,
         chromakey_color=chromakey_color,
         save_dir=anim_dir,
-        platform=args.platform,
-        tiles=args.tiles,
         subject="object",
-        frame_poses=args.frame_poses,
-        padding=args.padding,
     )
 
     cleaned_frames = [_clean_sprite(frame, chromakey_color) for frame in raw_frames]
-    cleaned_frames = _normalize_animation_frames(cleaned_frames)
+    cleaned_frames = _scale_and_normalize_frames(cleaned_frames)
     for i, frame in enumerate(cleaned_frames, 1):
         frame.save(anim_dir / f"frame_{i:02d}.png")
 

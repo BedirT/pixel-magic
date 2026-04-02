@@ -31,16 +31,24 @@ def draw_label(
     center_x: int,
     y: int,
     cell_w: int,
+    *,
+    corner: bool = False,
 ) -> None:
-    """Draw a direction label centered at (center_x, y) using Pixelify Sans.
+    """Draw a direction label using Pixelify Sans.
 
     White text with black outline for readability on chromakey background.
     Font size scales with cell width. Alpha is thresholded to avoid
     anti-aliased blending with the chromakey background.
+
+    If corner=True, the label is positioned at the top-left corner (ignoring
+    center_x) and drawn larger for better model visibility.
     """
-    font_size = max(18, cell_w // 18)
+    if corner:
+        font_size = max(32, cell_w // 6)
+    else:
+        font_size = max(24, cell_w // 10)
     font = ImageFont.truetype(str(FONT_PATH), size=font_size)
-    stroke = max(2, font_size // 12)
+    stroke = max(2, font_size // 10)
 
     # Render text onto a temp image, then threshold alpha to kill anti-aliasing
     bbox = ImageDraw.Draw(canvas).textbbox((0, 0), text, font=font, stroke_width=stroke)
@@ -59,7 +67,10 @@ def draw_label(
     a = a.point(lambda v: 255 if v > 128 else 0)
     tmp = Image.merge("RGBA", (r, g, b, a))
 
-    x = center_x - (tw // 2)
+    if corner:
+        x = center_x - (cell_w // 2) + 4  # left edge of cell + small margin
+    else:
+        x = center_x - (tw // 2)
     canvas.paste(tmp, (x, y), tmp)
 
 
@@ -135,9 +146,10 @@ def build_canvas(
 ) -> tuple[Image.Image, int, tuple[int, int], str, str]:
     """Build a sprite sheet canvas with frames arranged in a grid.
 
-    The canvas is padded to match a Gemini-supported aspect ratio.
-    Each slot is centered within its cell (evenly divided quadrant).
-    Empty slots get a pixel-art frame number in the top-left corner of the cell.
+    Layout uses explicit margins and gaps: an outer margin around the entire
+    canvas and gaps between cells. Each cell has a thick white border with
+    the frame number in its top-left corner. Slots (where sprites go) are
+    inset inside the borders.
 
     If loop=True, the reference is placed in both slot 1 and the last slot.
     If slot_bg is provided, it's placed in every slot (behind reference).
@@ -150,47 +162,80 @@ def build_canvas(
     slot_w, slot_h = reference_frame.size
     cols, rows = grid_layout(total_frames, slot_w, slot_h)
 
-    # Snap to Gemini ratio for final canvas size
-    raw_w, raw_h = slot_w * cols, slot_h * rows
+    # Spacing: border thickness, gap between cells, outer margin
+    # Border must be very thick so Gemini clearly sees cell boundaries
+    border = 5
+    gap = 5
+    margin = gap  # outer margin same as gap
+
+    # Cell = border + slot + border
+    cell_w = slot_w + 2 * border
+    cell_h = slot_h + 2 * border
+
+    # Total canvas before aspect-ratio snapping
+    raw_w = 2 * margin + cols * cell_w + (cols - 1) * gap
+    raw_h = 2 * margin + rows * cell_h + (rows - 1) * gap
     aspect_ratio, canvas_w, canvas_h = snap_gemini_ratio(raw_w, raw_h)
     image_size = pick_image_size(max(canvas_w, canvas_h))
 
+    # Recompute margin to absorb the aspect-ratio padding evenly
+    actual_margin_x = (canvas_w - cols * cell_w - (cols - 1) * gap) // 2
+    actual_margin_y = (canvas_h - rows * cell_h - (rows - 1) * gap) // 2
+
     canvas = Image.new("RGBA", (canvas_w, canvas_h), (*fill, 255))
 
-    # Evenly divide canvas into cells — slots centered within each cell
-    cell_w = canvas_w // cols
-    cell_h = canvas_h // rows
-    ox = (cell_w - slot_w) // 2  # horizontal offset to center slot
-    oy = (cell_h - slot_h) // 2  # vertical offset to center slot
+    # How many frames are in the last row?
+    last_row_count = total_frames - (rows - 1) * cols
+    last_row_offset_x = ((cols - last_row_count) * (cell_w + gap)) // 2 if last_row_count < cols else 0
 
-    for idx in range(total_frames):
+    def _cell_origin(idx: int) -> tuple[int, int]:
+        """Top-left corner of cell border for a given frame index."""
         col = idx % cols
         row = idx // cols
-        cell_x = col * cell_w
-        cell_y = row * cell_h
-        x = cell_x + ox
-        y = cell_y + oy
+        cx = actual_margin_x + col * (cell_w + gap)
+        cy = actual_margin_y + row * (cell_h + gap)
+        if row == rows - 1 and last_row_offset_x:
+            cx += last_row_offset_x
+        return cx, cy
+
+    def _slot_origin(idx: int) -> tuple[int, int]:
+        """Top-left corner of the slot (inside border) for a given frame index."""
+        cx, cy = _cell_origin(idx)
+        return cx + border, cy + border
+
+    draw = ImageDraw.Draw(canvas)
+    border_color = (255, 255, 255, 255)
+
+    for idx in range(total_frames):
+        cx, cy = _cell_origin(idx)
+        sx, sy = _slot_origin(idx)
+
+        # Draw thick white border around the cell
+        draw.rectangle(
+            [cx, cy, cx + cell_w - 1, cy + cell_h - 1],
+            outline=border_color, width=border,
+        )
 
         if slot_bg is not None:
-            canvas.paste(slot_bg, (x, y), slot_bg if slot_bg.mode == "RGBA" else None)
+            canvas.paste(slot_bg, (sx, sy), slot_bg if slot_bg.mode == "RGBA" else None)
 
-        # Frame number centered at top of cell (offset for multi-batch)
-        draw_label(canvas, str(frame_offset + idx + 1), cell_x + cell_w // 2, cell_y + 4, cell_w)
+        # Frame number in the top-left corner of the cell
+        draw_label(canvas, str(frame_offset + idx + 1), cx + cell_w // 2, cy + border + 2, cell_w, corner=True)
 
     # Place reference in slot 1 (covers frame number underneath)
+    s0x, s0y = _slot_origin(0)
     canvas.paste(
-        reference_frame, (ox, oy),
+        reference_frame, (s0x, s0y),
         reference_frame if reference_frame.mode == "RGBA" else None,
     )
 
     # Loop: place loop target (or reference) in last slot
     if loop:
         last_idx = total_frames - 1
-        lx = (last_idx % cols) * cell_w + ox
-        ly = (last_idx // cols) * cell_h + oy
+        slx, sly = _slot_origin(last_idx)
         target = loop_frame if loop_frame is not None else reference_frame
         canvas.paste(
-            target, (lx, ly),
+            target, (slx, sly),
             target if target.mode == "RGBA" else None,
         )
 
@@ -225,12 +270,17 @@ def build_empty_canvas(
     cell_w = canvas_w // cols
     cell_h = canvas_h // rows
 
+    last_row_count = total_frames - (rows - 1) * cols
+    last_row_offset = (cols - last_row_count) * cell_w // 2 if last_row_count < cols else 0
+
     for idx in range(total_frames):
         col = idx % cols
         row = idx // cols
         cell_x = col * cell_w
         cell_y = row * cell_h
-        draw_label(canvas, str(frame_offset + idx + 1), cell_x + cell_w // 2, cell_y + 4, cell_w)
+        if row == rows - 1 and last_row_offset:
+            cell_x += last_row_offset
+        draw_label(canvas, str(frame_offset + idx + 1), cell_x + cell_w // 2, cell_y + 4, cell_w, corner=True)
 
     return canvas, cols, (cell_w, cell_h), aspect_ratio, image_size
 
@@ -243,29 +293,59 @@ def extract_frames(
 ) -> list[Image.Image]:
     """Extract frames from a grid-layout sprite sheet.
 
-    If slot_size is provided, extracts centered slots from evenly-divided cells.
-    Otherwise falls back to dividing the sheet into equal cells.
+    Uses the same margin/gap/border layout as build_canvas to locate each
+    slot precisely. If slot_size is provided, the layout includes borders
+    and gaps; otherwise falls back to simple even division.
     """
     if cols is None:
         cols = total_frames
     rows = math.ceil(total_frames / cols)
-    cell_w = sheet.width // cols
-    cell_h = sheet.height // rows
 
     if slot_size:
         sw, sh = slot_size
-        ox = (cell_w - sw) // 2
-        oy = (cell_h - sh) // 2
-    else:
-        sw, sh = cell_w, cell_h
-        ox, oy = 0, 0
+        # Reconstruct the same spacing as build_canvas
+        border = 5
+        gap = 5
+        cell_w = sw + 2 * border
+        cell_h = sh + 2 * border
 
-    frames = []
-    for idx in range(total_frames):
-        col = idx % cols
-        row = idx // cols
-        x = col * cell_w + ox
-        y = row * cell_h + oy
-        frame = sheet.crop((x, y, x + sw, y + sh))
-        frames.append(frame)
-    return frames
+        # Recompute actual margins from canvas size
+        actual_margin_x = (sheet.width - cols * cell_w - (cols - 1) * gap) // 2
+        actual_margin_y = (sheet.height - rows * cell_h - (rows - 1) * gap) // 2
+
+        last_row_count = total_frames - (rows - 1) * cols
+        last_row_offset_x = ((cols - last_row_count) * (cell_w + gap)) // 2 if last_row_count < cols else 0
+
+        frames = []
+        for idx in range(total_frames):
+            col = idx % cols
+            row = idx // cols
+            cx = actual_margin_x + col * (cell_w + gap)
+            cy = actual_margin_y + row * (cell_h + gap)
+            if row == rows - 1 and last_row_offset_x:
+                cx += last_row_offset_x
+            x = cx + border
+            y = cy + border
+            frame = sheet.crop((x, y, x + sw, y + sh))
+            frames.append(frame)
+        return frames
+    else:
+        # Simple even division fallback (for canvases without margin/gap layout)
+        cell_w = sheet.width // cols
+        cell_h = sheet.height // rows
+        sw, sh = cell_w, cell_h
+
+        last_row_count = total_frames - (rows - 1) * cols
+        last_row_offset = (cols - last_row_count) * cell_w // 2 if last_row_count < cols else 0
+
+        frames = []
+        for idx in range(total_frames):
+            col = idx % cols
+            row = idx // cols
+            x = col * cell_w
+            y = row * cell_h
+            if row == rows - 1 and last_row_offset:
+                x += last_row_offset
+            frame = sheet.crop((x, y, x + sw, y + sh))
+            frames.append(frame)
+        return frames

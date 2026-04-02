@@ -1,6 +1,6 @@
 # pixel-magic
 
-AI-powered pixel art asset generation CLI. Generates isometric character sheets, animation sprite sheets, terrain tiles, world objects, and VFX effects using Google Gemini with a canvas-based pipeline.
+AI-powered pixel art asset generation CLI. Generates isometric character sheets, animation frames, terrain tiles, world objects, and VFX effects using Google Gemini.
 
 ## Tech Stack
 
@@ -23,7 +23,8 @@ AI-powered pixel art asset generation CLI. Generates isometric character sheets,
 ## Workflow
 
 - Simplicity above all — minimal code, minimal dependencies, minimal abstractions
-- Canvas-based pipeline — build guide template, Gemini fills content, cleanup pass removes guides
+- Character/object animation uses **single-frame generation** — one Gemini call per frame, with reference + previous frame as context. No canvas grid, no cleanup pass needed.
+- Tile, object, and effect generation use canvas-based pipeline — build guide template, Gemini fills content, cleanup pass removes guides
 - All prompts are JSON-structured Jinja2 templates in `prompts/templates/`
 - One feature at a time — get it working before adding the next thing
 
@@ -34,7 +35,7 @@ src/pixel_magic/
     __main__.py     # CLI entry point (argparse)
     config.py       # Settings from .env
     canvas.py       # Shared canvas utilities (grid layout, frame extraction)
-    animate.py      # Animation orchestration + character generation canvas
+    animate.py      # Single-frame animation generation + character generation canvas
     tile.py         # Terrain tile generation (canvas, extraction, fitting)
     object.py       # World object generation (canvas, extraction)
     effect.py       # VFX effect loop closure

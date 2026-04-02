@@ -1,0 +1,59 @@
+{
+  "task": "single_frame_animation",
+  "purpose": "Generate exactly ONE animation frame — a single {{ subject }} sprite on a solid {{ chromakey_color }} ({{ hex_color }}) background",
+  "attached_images": [
+    {"image_1": "reference", "description": "The {{ subject }} in its idle/starting pose on {{ chromakey_color }} background. This is frame 1 of the animation. Match this {{ subject }}'s proportions, colors, outfit, and pixel art style EXACTLY."}
+    {% if has_previous_frame %}
+    ,{"image_2": "previous_frame", "description": "Frame {{ frame_number - 1 }} of the animation — the most recently generated frame. Use this for smooth motion continuity from the previous pose to the current pose."}
+    {% endif %}
+  ],
+  {% if orientation %}
+  "orientation": "{{ orientation | je }}",
+  {% endif %}
+  "animation_context": {
+    "full_animation": "{{ animation_description | je }}",
+    "total_frames": {{ total_frames }},
+    "this_frame": {{ frame_number }},
+    "looping": {{ 'true' if loop else 'false' }}
+    {% if loop and is_last %}
+    ,"loop_note": "This is the LAST frame before looping back to frame 1. The pose should transition smoothly back toward the reference pose so the animation loops cleanly."
+    {% endif %}
+    {% if is_last and not loop %}
+    ,"end_note": "This is the FINAL frame of the animation."
+    {% endif %}
+  },
+  "this_frame": {
+    "number": {{ frame_number }},
+    "pose": "{{ pose_description | je }}"
+  },
+  {% if character_description %}
+  "{{ subject }}": {
+    "description": "{{ character_description | je }}"
+  },
+  {% endif %}
+  "output_requirements": {
+    "content": "A single {{ subject }} sprite showing the described pose",
+    "background": "Solid {{ chromakey_color }} ({{ hex_color }}) — every non-sprite pixel must be exactly {{ hex_color }}",
+    "format": "One image, one sprite, no grid, no borders, no frame numbers, no text, no labels"
+  },
+  "spatial_rules": [
+    {% for rule in spatial_rules %}
+    "{{ rule | je }}"{{ ',' if not loop.last else '' }}
+    {% endfor %}
+  ],
+  "art_style": {
+    "style": "{{ style | je }}",
+    "perspective": "isometric 3/4 top-down view",
+    "pixel_art": "hard pixel edges, no anti-aliasing, no smoothing",
+    "outline": "1-pixel black outline on all {{ subject }} elements",
+    "palette": "Use the EXACT same color palette as the reference image",
+    "size": "Output the sprite at approximately the same pixel dimensions as the reference image"
+  },
+  "critical_rules": [
+    "Output EXACTLY one sprite on a solid {{ chromakey_color }} background — nothing else",
+    "Match the reference {{ subject }}'s proportions, colors, and style pixel-for-pixel",
+    "The ONLY thing that changes between frames is the pose — everything else stays identical",
+    "Do NOT add any grid lines, borders, numbers, text, or labels",
+    "Do NOT change the {{ subject }}'s size, colors, or level of detail between frames"
+  ]
+}

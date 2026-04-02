@@ -27,13 +27,11 @@ By default, commands write into `output/`.
 - Tile generation writes to `output/tiles/<set-name>/`
 - Effect generation writes to `output/effects/<effect-name>/` or `output/effects/<preset>/<effect-name>/`
 
-Most canvas-based flows save intermediate artifacts for debugging:
+Intermediate artifacts are saved for debugging:
 
-- `canvas_input.png` — the guide canvas sent to Gemini (single-batch)
-- `raw.png` or `sheet_raw.png` — the first Gemini output (single-batch)
-- `sheet_cleaned.png` — the cleanup-pass output when the pipeline removes guides
-- `sheet.png` — the final assembled output after local cleanup
-- `batch_<n>_canvas.png` / `batch_<n>_sheet_raw.png` / `batch_<n>_sheet_cleaned.png` — per-batch artifacts for multi-batch animations (>6 frames)
+- **Animation flows** (single-frame): `frame_NN_raw.png` (raw Gemini output per frame), `frame_NN_prompt.json` (rendered JSON prompt per frame)
+- **Canvas-based flows** (tile, object, effect): `canvas_input.png`, `raw.png` / `sheet_raw.png`, `sheet_cleaned.png`
+- `sheet.png` — the final assembled sprite sheet
 
 ## `pixel-magic generate`
 
@@ -119,10 +117,12 @@ If you pass `--sizes`, resized variants are written under `views/<size>x<size>/`
 
 ## `pixel-magic animate`
 
-Generate animation frames for an existing character sprite.
+Generate animation frames for an existing character sprite using single-frame sequential generation.
+
+Each `--frame-poses` entry triggers one Gemini call. The model receives the reference sprite + the previous frame as context, producing one new frame per call. Total frames = number of poses + 1 (the reference).
 
 ```bash
-pixel-magic animate --name <name> --animation-description "<desc>" [options]
+pixel-magic animate --name <name> --animation-description "<desc>" --frame-poses "<p1>" "<p2>" ... [options]
 ```
 
 ### Required Arguments
@@ -131,81 +131,76 @@ pixel-magic animate --name <name> --animation-description "<desc>" [options]
 |---|---|
 | `--name <name>` | Character name. The command expects a source sprite in `output/<name>/views/` unless `--reference` is provided. |
 | `--animation-description "<desc>"` | Natural-language description of the animation (e.g. "a walk cycle — legs alternating, arms swinging"). |
+| `--frame-poses "<p1>" "<p2>" ...` | Per-frame pose descriptions. Each entry generates one frame via a separate Gemini call. |
 
 ### Optional Arguments
 
 | Argument | Default | Description |
 |---|---|---|
 | `--description "<desc>"` | *(none)* | Extra character description to improve consistency. |
-| `--frames <n>` | `6` | Total number of frames in the cycle. |
-| `--frame-poses "<p1>" "<p2>" ...` | *(none)* | Optional per-frame pose descriptions for fillable slots. |
 | `--loop` / `--no-loop` | `--loop` | Generate a looping or one-shot sequence. |
 | `--direction <dir>` | `south_east` | Which extracted character view to animate. Compass names like `north_east`, `south`, and `west` are canonical. |
 | `--reference <path>` | *(auto-detect)* | Use a custom reference image instead of the generated view. |
 | `--output-dir <path>` | `output` | Root output directory. |
 | `--chromakey {green,blue}` | from `.env` | Override the chromakey used during cleanup. |
 | `--style "<style>"` | `16-bit SNES RPG style` | Style description passed to Gemini. |
-| `--platform` / `--no-platform` | `--no-platform` | Add an isometric platform for perspective grounding. |
-| `--tiles {1,4,9}` | `1` | Platform size. Values above `1` imply `--platform`. |
-| `--padding <float>` | `0.2` | Slot padding fraction for pose overflow room. `0.2` = 20% extra per side, giving dynamic poses room to extend beyond the standing reference. |
 
 ### Examples
 
-Looping walk cycle:
+Looping walk cycle (8 poses = 9 total frames):
 
 ```bash
 pixel-magic animate \
-  --name samurai \
+  --name knight \
   --animation-description "a walk cycle — legs alternating, arms swinging naturally" \
-  --frames 6 --platform
+  --frame-poses \
+    "left foot forward, right arm swinging forward" \
+    "weight drops onto front foot, knee bends" \
+    "legs cross at center, body at highest point" \
+    "right leg swings forward reaching ahead" \
+    "right foot strikes ground, left arm forward" \
+    "weight drops onto right foot" \
+    "legs cross at center again" \
+    "left leg swings forward, returning to start"
 ```
 
 One-shot attack with per-frame poses:
 
 ```bash
 pixel-magic animate \
-  --name samurai \
-  --animation-description "a sword attack — wind up, strike, follow through" \
-  --frames 4 --tiles 4 --no-loop \
-  --frame-poses "arm pulls back" "sword swings forward" "full extension"
-```
-
-Spell cast with a custom reference:
-
-```bash
-pixel-magic animate \
-  --name samurai \
-  --animation-description "a spell casting animation — hands raise, energy channels, spell releases" \
-  --frames 4 \
-  --direction south_east \
-  --reference path/to/reference.png \
-  --no-loop
+  --name knight \
+  --animation-description "a spear thrust attack" \
+  --no-loop \
+  --frame-poses \
+    "body coils back, spear drawn behind shoulder" \
+    "explosive forward lunge, spear thrusts forward" \
+    "full extension past target, momentum carries forward" \
+    "body settles back, spear retracting"
 ```
 
 ### Output
 
 ```text
 output/<name>/animations/<sanitized-description>/
-├── canvas_input.png        # Single-batch canvas sent to Gemini
-├── sheet_raw.png           # Single-batch raw Gemini output
-├── sheet_cleaned.png       # Present when platform cleanup runs
-├── batch_0_canvas.png      # Multi-batch (>6 frames): per-batch canvas
-├── batch_0_sheet_raw.png   # Multi-batch: per-batch raw output
-├── batch_0_sheet_cleaned.png  # Multi-batch: per-batch cleaned output
-├── sheet.png
-├── frame_01.png
-├── frame_02.png
-└── ...
+├── frame_01.png            # Reference frame (cleaned)
+├── frame_02.png            # Generated frame 2 (cleaned)
+├── frame_02_raw.png        # Raw Gemini output for frame 2
+├── frame_02_prompt.json    # JSON prompt sent for frame 2
+├── frame_03.png
+├── frame_03_raw.png
+├── frame_03_prompt.json
+├── ...
+└── sheet.png               # Horizontal sprite sheet of all cleaned frames
 ```
-
-Single-batch runs (≤6 frames) write `canvas_input.png` and `sheet_raw.png`. Multi-batch runs (>6 frames) write `batch_<n>_canvas.png`, `batch_<n>_sheet_raw.png`, and optionally `batch_<n>_sheet_cleaned.png` for each batch.
 
 ## `pixel-magic animate-object`
 
-Generate animation frames for an existing object sprite.
+Generate animation frames for an existing object sprite using single-frame sequential generation.
+
+Same pipeline as `animate` — each `--frame-poses` entry triggers one Gemini call with reference + previous frame context.
 
 ```bash
-pixel-magic animate-object --set <set-name> --name <object-name> --animation-description "<desc>" [options]
+pixel-magic animate-object --set <set-name> --name <object-name> --animation-description "<desc>" --frame-poses "<p1>" "<p2>" ... [options]
 ```
 
 ### Required Arguments
@@ -215,22 +210,18 @@ pixel-magic animate-object --set <set-name> --name <object-name> --animation-des
 | `--set <set-name>` | Object set name, for example `forest`, `dungeon`, or `camp`. |
 | `--name <object-name>` | Object name inside that set, for example `oak_tree_1` or `torch_1`. |
 | `--animation-description "<desc>"` | Natural-language description of the animation (e.g. "gentle swaying in wind"). |
+| `--frame-poses "<p1>" "<p2>" ...` | Per-frame pose descriptions. Each entry generates one frame. |
 
 ### Optional Arguments
 
 | Argument | Default | Description |
 |---|---|---|
 | `--description "<desc>"` | *(none)* | Extra object description for consistency. |
-| `--frames <n>` | `6` | Total number of frames in the cycle. |
-| `--frame-poses "<p1>" "<p2>" ...` | *(none)* | Optional per-frame pose descriptions for fillable slots. |
 | `--loop` / `--no-loop` | `--loop` | Generate a looping or one-shot sequence. |
 | `--reference <path>` | *(auto-detect)* | Override the source object sprite path. |
 | `--output-dir <path>` | `output` | Root output directory. |
 | `--chromakey {green,blue,pink}` | `pink` | Pink is the default to protect green and blue object colors. |
 | `--style "<style>"` | `16-bit SNES RPG style` | Style description passed to Gemini. |
-| `--platform` / `--no-platform` | `--no-platform` | Add an isometric platform for grounding. |
-| `--tiles {1,4,9}` | `1` | Platform size. Values above `1` imply `--platform`. |
-| `--padding <float>` | `0.2` | Slot padding fraction for pose overflow room. `0.2` = 20% extra per side. |
 | `--sizes "<list>"` | *(none)* | Resize frames to `16,32,48,64,96,128,256` or `all`. |
 | `--num-colors <n>` | *(preserve original)* | Palette size for resized frames. |
 
@@ -240,37 +231,29 @@ Looping torch flicker:
 
 ```bash
 pixel-magic animate-object --set dungeon --name torch \
-  --animation-description "a flickering animation — flame pulses and shifts shape" --frames 6
+  --animation-description "a flickering animation — flame pulses and shifts shape" \
+  --frame-poses "flame leans left, tip narrows" "flame stands tall, widens at base" "flame leans right, sparks fly" "flame shrinks briefly, embers glow"
 ```
 
 One-shot chest opening:
 
 ```bash
 pixel-magic animate-object --set dungeon --name chest \
-  --animation-description "the chest lid swings open revealing the interior" --frames 5 --no-loop
-```
-
-Looping campfire with resized outputs:
-
-```bash
-pixel-magic animate-object --set camp --name campfire \
-  --animation-description "flames dance and smoke wisps rise" --frames 6 --sizes 32,64
+  --animation-description "the chest lid swings open revealing the interior" \
+  --no-loop \
+  --frame-poses "lid begins to lift, light glows from crack" "lid halfway open, golden glow spills out" "lid fully open, treasures visible inside" "lid settles, glow dims slightly"
 ```
 
 ### Output
 
 ```text
 output/objects/<set-name>/animations/<object-name>/<sanitized-description>/
-├── canvas_input.png        # Single-batch canvas sent to Gemini
-├── sheet_raw.png           # Single-batch raw Gemini output
-├── sheet_cleaned.png       # Present when platform cleanup runs
-├── batch_0_canvas.png      # Multi-batch (>6 frames): per-batch canvas
-├── batch_0_sheet_raw.png   # Multi-batch: per-batch raw output
-├── batch_0_sheet_cleaned.png  # Multi-batch: per-batch cleaned output
-├── sheet.png
 ├── frame_01.png
 ├── frame_02.png
+├── frame_02_raw.png
+├── frame_02_prompt.json
 ├── ...
+├── sheet.png
 ├── 32x32/
 │   ├── frame_01.png
 │   └── sheet.png
@@ -278,8 +261,6 @@ output/objects/<set-name>/animations/<object-name>/<sanitized-description>/
     ├── frame_01.png
     └── sheet.png
 ```
-
-Single-batch runs (≤6 frames) write `canvas_input.png` and `sheet_raw.png`. Multi-batch runs (>6 frames) write `batch_<n>_canvas.png`, `batch_<n>_sheet_raw.png`, and optionally `batch_<n>_sheet_cleaned.png` for each batch.
 
 ## `pixel-magic effect`
 

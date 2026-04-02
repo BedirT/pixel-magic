@@ -42,6 +42,7 @@ def test_animate_parser_defaults_to_south_east() -> None:
     args = parser.parse_args([
         "animate", "--name", "hero",
         "--animation-description", "a walk cycle",
+        "--frame-poses", "step left", "step right", "step left", "step right",
     ])
     assert args.direction == "south_east"
 
@@ -56,6 +57,7 @@ def test_animate_rejects_unknown_direction(
         [
             "pixel-magic", "animate", "--name", "hero",
             "--animation-description", "a walk cycle",
+            "--frame-poses", "step left", "step right", "step left", "step right",
             "--direction", "upsideways",
         ],
     )

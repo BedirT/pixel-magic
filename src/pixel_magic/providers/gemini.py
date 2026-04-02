@@ -38,6 +38,7 @@ class GeminiProvider:
         config: GenerationConfig | None = None,
         aspect_ratio: str | None = None,
         image_size: str | None = None,
+        thinking_budget: int | None = None,
     ) -> GenerationResult:
         contents: list[Image.Image | str] = [*images, prompt]
         return await self._generate_content(
@@ -45,6 +46,7 @@ class GeminiProvider:
             prompt_text=prompt,
             aspect_ratio=aspect_ratio,
             image_size=image_size,
+            thinking_budget=thinking_budget,
         )
 
     async def _generate_content(
@@ -53,6 +55,7 @@ class GeminiProvider:
         prompt_text: str,
         aspect_ratio: str | None = None,
         image_size: str | None = None,
+        thinking_budget: int | None = None,
     ) -> GenerationResult:
         from google.genai import types
 
@@ -64,6 +67,10 @@ class GeminiProvider:
             if image_size:
                 img_cfg["image_size"] = image_size
             gen_config["image_config"] = types.ImageConfig(**img_cfg)
+        if thinking_budget is not None:
+            gen_config["thinking_config"] = types.ThinkingConfig(
+                thinking_budget=thinking_budget,
+            )
 
         for attempt in range(MAX_RETRIES):
             try:
