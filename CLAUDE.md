@@ -37,7 +37,7 @@ src/pixel_magic/
     animate.py      # Animation orchestration + character generation canvas
     tile.py         # Terrain tile generation (canvas, extraction, fitting)
     object.py       # World object generation (canvas, extraction)
-    effect.py       # VFX effect presets and resolution
+    effect.py       # VFX effect loop closure
     platform.py     # Isometric platform + tile outline generation
     background.py   # Chromakey removal (flood-fill + despill)
     extract.py      # Sprite extraction (connected-component)
@@ -46,7 +46,7 @@ src/pixel_magic/
     prompts/        # Jinja2 JSON prompt templates
         __init__.py         # Public API (prompt builder functions)
         _engine.py          # Jinja2 rendering engine
-        _data.py            # Shared constants (views, animation descriptions)
+        _data.py            # Shared constants (views, spatial rules)
         templates/          # .json.j2 template files
     providers/      # Gemini generation backend
 ```

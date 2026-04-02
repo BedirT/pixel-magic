@@ -100,6 +100,19 @@ def _resize_sprites(
     print(f"Saved {len(sizes)} size variants")
 
 
+def _anim_dir_slug(description: str) -> str:
+    """Sanitize an animation description into a short, unique directory name."""
+    import hashlib
+
+    slug = description[:40].strip().replace(" ", "_").replace("/", "_")
+    slug = "".join(c for c in slug if c.isalnum() or c in "_-")
+    if not slug:
+        slug = "animation"
+    # Append a short hash of the full description to avoid collisions
+    suffix = hashlib.sha256(description.encode()).hexdigest()[:6]
+    return f"{slug}_{suffix}"
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pixel-magic",
@@ -149,9 +162,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
     anim = sub.add_parser("animate", help="Generate animation frames for an existing character")
     anim.add_argument("--name", required=True, help="Character name (must exist in output dir)")
-    anim.add_argument("--animation", default="walk", help="Animation type: walk, idle, attack, run, cast, hurt, death, dodge, jump, block (default: walk)")
+    anim.add_argument("--animation-description", required=True, help="Natural-language description of the animation (e.g. 'a walk cycle — legs alternating, arms swinging')")
     anim.add_argument("--description", default="", help="Character description (helps model consistency)")
     anim.add_argument("--frames", type=_positive_int, default=6, help="Total frames in animation (default: 6, >6 uses multi-batch)")
+    anim.add_argument("--frame-poses", nargs="+", default=None, help="Optional per-frame pose descriptions for fillable slots")
     anim.add_argument("--loop", action="store_true", default=True, help="Looping animation (default)")
     anim.add_argument("--no-loop", dest="loop", action="store_false", help="One-shot animation (attack, death, etc.)")
     anim.add_argument(
@@ -169,13 +183,18 @@ def _build_parser() -> argparse.ArgumentParser:
         "--tiles", type=int, default=1, choices=[1, 4, 9],
         help="Platform tile count: 1 (default), 4 (2x2 grid), 9 (3x3 grid). More tiles = more room for action poses.",
     )
+    anim.add_argument(
+        "--padding", type=float, default=0.2,
+        help="Slot padding fraction for pose overflow room (default: 0.2 = 20%% extra per side)",
+    )
 
     anim_obj = sub.add_parser("animate-object", help="Generate animation frames for an existing object")
     anim_obj.add_argument("--set", required=True, help="Object set name (e.g., forest, torch)")
     anim_obj.add_argument("--name", required=True, help="Object name within the set (e.g., oak_tree_1)")
-    anim_obj.add_argument("--animation", default="sway", help="Animation type: sway, flicker, burn, pulse, open, bob, spin (default: sway)")
+    anim_obj.add_argument("--animation-description", required=True, help="Natural-language description of the animation (e.g. 'gentle swaying in wind')")
     anim_obj.add_argument("--description", default="", help="Object description (helps model consistency)")
     anim_obj.add_argument("--frames", type=_positive_int, default=6, help="Total frames in animation (default: 6, >6 uses multi-batch)")
+    anim_obj.add_argument("--frame-poses", nargs="+", default=None, help="Optional per-frame pose descriptions for fillable slots")
     anim_obj.add_argument("--loop", action="store_true", default=True, help="Looping animation (default)")
     anim_obj.add_argument("--no-loop", dest="loop", action="store_false", help="One-shot animation (open, etc.)")
     anim_obj.add_argument("--reference", default=None, help="Path to reference frame (overrides auto-detect)")
@@ -187,6 +206,10 @@ def _build_parser() -> argparse.ArgumentParser:
     anim_obj.add_argument(
         "--tiles", type=int, default=1, choices=[1, 4, 9],
         help="Platform tile count: 1 (default), 4 (2x2 grid), 9 (3x3 grid).",
+    )
+    anim_obj.add_argument(
+        "--padding", type=float, default=0.2,
+        help="Slot padding fraction for pose overflow room (default: 0.2 = 20%% extra per side)",
     )
     anim_obj.add_argument(
         "--sizes", default="",
@@ -230,14 +253,12 @@ def _build_parser() -> argparse.ArgumentParser:
     obj.add_argument("--num-colors", type=int, default=None, help="Palette size for resized objects")
 
     eff = sub.add_parser("effect", help="Generate animated VFX effects (explosions, smoke, magic, etc.)")
-    eff_mode = eff.add_mutually_exclusive_group(required=True)
-    eff_mode.add_argument("--name", help="Single effect name (e.g., explosion, fire, magic_circle)")
-    eff_mode.add_argument("--preset", help="Effect preset group (e.g., combat, magic, nature, status, custom)")
-    eff.add_argument("--names", default="", help="Custom effect names for --preset custom (comma-separated)")
-    eff.add_argument("--description", default="", help="Optional effect description (auto-inferred from name if empty)")
+    eff.add_argument("--name", required=True, help="Effect name (used as output folder)")
+    eff.add_argument("--animation-description", required=True, help="Natural-language description of the effect animation")
     eff.add_argument("--frames", type=_positive_int, default=6, help="Total animation frames (default: 6, minimum: 2)")
-    eff.add_argument("--loop", action="store_true", default=None, help="Force looping animation")
-    eff.add_argument("--no-loop", dest="loop", action="store_false", help="Force one-shot animation")
+    eff.add_argument("--frame-poses", nargs="+", default=None, help="Optional per-frame descriptions for each slot")
+    eff.add_argument("--loop", action="store_true", default=False, help="Looping animation")
+    eff.add_argument("--no-loop", dest="loop", action="store_false", help="One-shot animation (default)")
     eff.add_argument("--output-dir", default="output", help="Output directory (default: output)")
     eff.add_argument("--style", default="16-bit SNES RPG style", help="Art style")
     eff.add_argument("--max-colors", type=int, default=16, help="Max color count (default: 16)")
@@ -523,13 +544,13 @@ async def _animate(args: argparse.Namespace) -> None:
     if args.tiles > 1:
         args.platform = True
 
-    anim_dir = Path(args.output_dir) / args.name / "animations" / args.animation
-    print(f"Generating {args.frames}-frame {args.animation} animation...")
+    anim_dir = Path(args.output_dir) / args.name / "animations" / _anim_dir_slug(args.animation_description)
+    print(f"Generating {args.frames}-frame animation...")
 
     raw_frames = await generate_animation(
         provider=provider,
         reference_frame=reference,
-        animation_type=args.animation,
+        animation_description=args.animation_description,
         total_frames=args.frames,
         loop=args.loop,
         character_description=args.description,
@@ -538,6 +559,8 @@ async def _animate(args: argparse.Namespace) -> None:
         save_dir=anim_dir,
         platform=args.platform,
         tiles=args.tiles,
+        frame_poses=args.frame_poses,
+        padding=args.padding,
     )
 
     # Clean each frame (background removal + outline strip/re-add)
@@ -583,13 +606,13 @@ async def _animate_object(args: argparse.Namespace) -> None:
         args.platform = True
 
     safe_name = args.name.replace(" ", "_").replace("/", "_")
-    anim_dir = Path(args.output_dir) / "objects" / args.set / "animations" / safe_name / args.animation
-    print(f"Generating {args.frames}-frame {args.animation} animation for {args.name}...")
+    anim_dir = Path(args.output_dir) / "objects" / args.set / "animations" / safe_name / _anim_dir_slug(args.animation_description)
+    print(f"Generating {args.frames}-frame animation for {args.name}...")
 
     raw_frames = await generate_animation(
         provider=provider,
         reference_frame=reference,
-        animation_type=args.animation,
+        animation_description=args.animation_description,
         total_frames=args.frames,
         loop=args.loop,
         character_description=args.description,
@@ -599,6 +622,8 @@ async def _animate_object(args: argparse.Namespace) -> None:
         platform=args.platform,
         tiles=args.tiles,
         subject="object",
+        frame_poses=args.frame_poses,
+        padding=args.padding,
     )
 
     cleaned_frames = [_clean_sprite(frame, chromakey_color) for frame in raw_frames]
@@ -633,11 +658,7 @@ async def _effect(args: argparse.Namespace) -> None:
     from pixel_magic.animate import assemble_sprite_sheet
     from pixel_magic.canvas import build_empty_canvas, extract_frames
     from pixel_magic.config import Settings
-    from pixel_magic.effect import (
-        enforce_loop_closure,
-        infer_loop_default,
-        resolve_effect_labels,
-    )
+    from pixel_magic.effect import enforce_loop_closure
     from pixel_magic.prompts import (
         build_effect_animation_prompt,
         build_effect_cleanup_prompt,
@@ -647,118 +668,106 @@ async def _effect(args: argparse.Namespace) -> None:
     settings = Settings()
     chromakey_color = _resolve_chromakey_pink(args.chromakey)
 
-    set_name, effect_labels = resolve_effect_labels(
-        name=args.name, preset=args.preset, custom_names=args.names,
-    )
-
     if args.frames < 2:
         raise ValueError("Animations need at least 2 frames")
+
+    loop = args.loop
+    if loop and args.frames < 3:
+        raise ValueError("Looping animations need at least 3 frames")
 
     provider = GeminiProvider(
         api_key=settings.google_api_key,
         model=settings.gemini_image_model,
     )
 
-    for effect_name in effect_labels:
-        # Determine loop behavior: explicit flag > auto-detect from effect name
-        loop = args.loop if args.loop is not None else infer_loop_default(effect_name)
-        description = args.description or effect_name.replace("_", " ")
+    safe_name = args.name.replace(" ", "_").replace("/", "_")
+    eff_dir = _output_dir(args.output_dir, "effects", safe_name)
+    eff_dir.mkdir(parents=True, exist_ok=True)
 
-        if loop and args.frames < 3:
-            raise ValueError("Looping animations need at least 3 frames")
+    print(f"Generating {args.name} effect ({args.frames} frames, {'loop' if loop else 'one-shot'})...")
 
-        # Output directory: effects/{name}/ or effects/{preset}/{name}/
-        safe_name = effect_name.replace(" ", "_").replace("/", "_")
-        if args.preset:
-            eff_dir = _output_dir(args.output_dir, "effects", set_name) / safe_name
-        else:
-            eff_dir = _output_dir(args.output_dir, "effects", safe_name)
-        eff_dir.mkdir(parents=True, exist_ok=True)
+    # Build empty grid canvas (no reference frame)
+    canvas, grid_cols, slot_size, aspect_ratio, image_size = build_empty_canvas(
+        total_frames=args.frames,
+        chromakey_color=chromakey_color,
+    )
+    grid_rows = math.ceil(args.frames / grid_cols)
+    canvas.save(eff_dir / "canvas_input.png")
 
-        print(f"Generating {effect_name} effect ({args.frames} frames, {'loop' if loop else 'one-shot'})...")
+    print(f"  Canvas: {canvas.width}x{canvas.height} ({grid_cols}x{grid_rows} grid, {args.frames} frames)")
+    print(f"  Gemini: {aspect_ratio} ratio, {image_size} output")
 
-        # Build empty grid canvas (no reference frame)
-        canvas, grid_cols, slot_size, aspect_ratio, image_size = build_empty_canvas(
-            total_frames=args.frames,
-            chromakey_color=chromakey_color,
-        )
-        grid_rows = math.ceil(args.frames / grid_cols)
-        canvas.save(eff_dir / "canvas_input.png")
+    # Single Gemini call — fill all slots
+    prompt = build_effect_animation_prompt(
+        animation_description=args.animation_description,
+        total_frames=args.frames,
+        style=args.style,
+        chromakey_color=chromakey_color,
+        loop=loop,
+        grid_cols=grid_cols,
+        grid_rows=grid_rows,
+        frame_poses=args.frame_poses,
+    )
 
-        print(f"  Canvas: {canvas.width}x{canvas.height} ({grid_cols}x{grid_rows} grid, {args.frames} frames)")
-        print(f"  Gemini: {aspect_ratio} ratio, {image_size} output")
+    print("  Generating animation...")
+    result = await provider.generate_with_images(
+        prompt=prompt,
+        images=[canvas],
+        aspect_ratio=aspect_ratio,
+        image_size=image_size,
+    )
+    result.image.save(eff_dir / "sheet_raw.png")
 
-        # Single Gemini call — fill all slots
-        prompt = build_effect_animation_prompt(
-            effect_name=effect_name,
-            total_frames=args.frames,
-            effect_description=description,
-            style=args.style,
-            chromakey_color=chromakey_color,
-            loop=loop,
-            grid_cols=grid_cols,
-            grid_rows=grid_rows,
-        )
+    cleanup_prompt = build_effect_cleanup_prompt(
+        args.frames,
+        chromakey_color,
+        grid_cols=grid_cols,
+        grid_rows=grid_rows,
+    )
+    print("  Removing frame numbers...")
+    cleaned = await provider.generate_with_images(
+        prompt=cleanup_prompt,
+        images=[result.image],
+        aspect_ratio=aspect_ratio,
+        image_size=image_size,
+    )
+    cleaned.image.save(eff_dir / "sheet_cleaned.png")
 
-        print("  Generating animation...")
-        result = await provider.generate_with_images(
-            prompt=prompt,
-            images=[canvas],
-            aspect_ratio=aspect_ratio,
-            image_size=image_size,
-        )
-        result.image.save(eff_dir / "sheet_raw.png")
+    # Resize output to match canvas dims if Gemini changed them
+    sheet = cleaned.image
+    if sheet.size != canvas.size:
+        sheet = sheet.resize(canvas.size, Image.NEAREST)
 
-        cleanup_prompt = build_effect_cleanup_prompt(
-            args.frames,
-            chromakey_color,
-            grid_cols=grid_cols,
-            grid_rows=grid_rows,
-        )
-        print("  Removing frame numbers...")
-        cleaned = await provider.generate_with_images(
-            prompt=cleanup_prompt,
-            images=[result.image],
-            aspect_ratio=aspect_ratio,
-            image_size=image_size,
-        )
-        cleaned.image.save(eff_dir / "sheet_cleaned.png")
+    # Extract frames from grid
+    raw_frames = extract_frames(sheet, args.frames, cols=grid_cols, slot_size=slot_size)
 
-        # Resize output to match canvas dims if Gemini changed them
-        sheet = cleaned.image
-        if sheet.size != canvas.size:
-            sheet = sheet.resize(canvas.size, Image.NEAREST)
+    cleaned_frames = [_clean_sprite(frame, chromakey_color) for frame in raw_frames]
+    cleaned_frames = _normalize_animation_frames(cleaned_frames)
+    cleaned_frames = enforce_loop_closure(cleaned_frames, loop=loop)
+    for i, frame in enumerate(cleaned_frames, 1):
+        frame.save(eff_dir / f"frame_{i:02d}.png")
 
-        # Extract frames from grid
-        raw_frames = extract_frames(sheet, args.frames, cols=grid_cols, slot_size=slot_size)
+    anim_sheet = assemble_sprite_sheet(cleaned_frames)
+    anim_sheet.save(eff_dir / "sheet.png")
+    print(f"Saved {len(cleaned_frames)} frames + sheet to {eff_dir}")
 
-        cleaned_frames = [_clean_sprite(frame, chromakey_color) for frame in raw_frames]
-        cleaned_frames = _normalize_animation_frames(cleaned_frames)
-        cleaned_frames = enforce_loop_closure(cleaned_frames, loop=loop)
-        for i, frame in enumerate(cleaned_frames, 1):
-            frame.save(eff_dir / f"frame_{i:02d}.png")
+    # Resize frames to target pixel art sizes
+    if args.sizes:
+        from pixel_magic.resize import parse_sizes, resize_sprite
 
-        anim_sheet = assemble_sprite_sheet(cleaned_frames)
-        anim_sheet.save(eff_dir / "sheet.png")
-        print(f"Saved {len(cleaned_frames)} frames + sheet to {eff_dir}")
-
-        # Resize frames to target pixel art sizes
-        if args.sizes:
-            from pixel_magic.resize import parse_sizes, resize_sprite
-
-            sizes = parse_sizes(args.sizes)
-            for size in sizes:
-                size_dir = eff_dir / f"{size}x{size}"
-                size_dir.mkdir(exist_ok=True)
-                resized_frames = []
-                for i, frame in enumerate(cleaned_frames, 1):
-                    resized = resize_sprite(frame, size, num_colors=args.num_colors)
-                    resized.save(size_dir / f"frame_{i:02d}.png")
-                    resized_frames.append(resized)
-                resized_sheet = assemble_sprite_sheet(resized_frames)
-                resized_sheet.save(size_dir / "sheet.png")
-                print(f"  Resized to {size}x{size}")
-            print(f"Saved {len(sizes)} size variants")
+        sizes = parse_sizes(args.sizes)
+        for size in sizes:
+            size_dir = eff_dir / f"{size}x{size}"
+            size_dir.mkdir(exist_ok=True)
+            resized_frames = []
+            for i, frame in enumerate(cleaned_frames, 1):
+                resized = resize_sprite(frame, size, num_colors=args.num_colors)
+                resized.save(size_dir / f"frame_{i:02d}.png")
+                resized_frames.append(resized)
+            resized_sheet = assemble_sprite_sheet(resized_frames)
+            resized_sheet.save(size_dir / "sheet.png")
+            print(f"  Resized to {size}x{size}")
+        print(f"Saved {len(sizes)} size variants")
 
 
 async def _tile(args: argparse.Namespace) -> None:

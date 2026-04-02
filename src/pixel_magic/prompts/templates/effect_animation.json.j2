@@ -11,11 +11,7 @@
     }
   },
   "effect": {
-    "name": "{{ effect_name | je }}",
-    "description": "{{ anim_desc | je }}"
-    {% if effect_description %}
-    ,"detail": "{{ effect_description | je }}"
-    {% endif %}
+    "description": "{{ animation_description | je }}"
   },
   "animation": {
     {% if loop %}
@@ -26,7 +22,22 @@
     "instruction": "This is a one-shot animation with {{ total_frames }} frames. Frame 1 is the beginning of the effect, frame {{ total_frames }} is the end. The effect should build up, peak, and dissipate across the full sequence."
     {% endif %}
   },
-  "action": "Fill EVERY slot with a frame of {{ anim_desc | je }}",
+  {% if frame_poses_data %}
+  "frames": [
+    {% for frame in frame_poses_data %}
+    {"slot": {{ frame.slot }}, "pose": "{{ frame.pose | je }}"}{{ ',' if not loop.last else '' }}
+    {% endfor %}
+  ],
+  {% endif %}
+  "spatial_rules": {
+    "default_behavior": "Unless the animation description or frame poses explicitly indicate otherwise:",
+    "rules": [
+      {% for rule in spatial_rules %}
+      "{{ rule | je }}"{{ ',' if not loop.last else '' }}
+      {% endfor %}
+    ]
+  },
+  "action": "Fill EVERY slot with a frame of {{ animation_description | je }}",
   "rules": [
     "Draw one animation frame per slot — paint OVER the frame numbers completely",
     "Maintain consistent color palette and art style across all frames",

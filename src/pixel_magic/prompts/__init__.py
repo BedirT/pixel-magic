@@ -6,13 +6,11 @@ Function signatures are backward-compatible with the old monolithic prompts.py.
 
 from __future__ import annotations
 
-import json
-
 from pixel_magic.prompts._data import (
-    ANIMATION_DESCRIPTIONS,
     CHROMAKEY_HEX,
-    EFFECT_ANIMATION_DESCRIPTIONS,
-    OBJECT_ANIMATION_DESCRIPTIONS,
+    DEFAULT_EFFECT_SPATIAL_RULES,
+    DEFAULT_OBJECT_SPATIAL_RULES,
+    DEFAULT_SPATIAL_RULES,
     POSITION_NAMES_4DIR,
     POSITION_NAMES_8DIR,
     VIEWS_4DIR,
@@ -21,6 +19,41 @@ from pixel_magic.prompts._data import (
     background_rule,
 )
 from pixel_magic.prompts._engine import render
+
+
+def _build_frame_poses(
+    poses: list[str],
+    total_frames: int,
+    loop: bool,
+    single_batch: bool,
+    frame_offset: int = 0,
+) -> list[dict]:
+    """Build per-frame pose metadata for templates.
+
+    Slot numbers use global frame IDs (frame_offset + local position) so they
+    match the canvas labels in multi-batch generation.
+
+    Local slot 1 is always the reference anchor. For single-batch loops, the
+    last slot is a loop-closure anchor. User-provided poses fill the remaining
+    fillable slots in order.
+    """
+    global_slot_1 = frame_offset + 1
+    data: list[dict] = [{"slot": global_slot_1, "pose": "reference frame (anchor)", "anchor": True}]
+    pose_idx = 0
+    for local in range(2, total_frames + 1):
+        global_slot = frame_offset + local
+        if single_batch and loop and local == total_frames:
+            data.append({
+                "slot": global_slot,
+                "pose": "loop-closure anchor (must match frame 1)",
+                "anchor": True,
+            })
+        else:
+            pose = poses[pose_idx] if pose_idx < len(poses) else None
+            if pose is not None:
+                data.append({"slot": global_slot, "pose": pose})
+                pose_idx += 1
+    return data
 
 
 def build_character_sheet_prompt(
@@ -52,7 +85,7 @@ def build_character_sheet_prompt(
 
 
 def build_canvas_prompt(
-    animation_type: str,
+    animation_description: str,
     total_frames: int,
     character_description: str = "",
     style: str = "16-bit SNES RPG style",
@@ -66,10 +99,11 @@ def build_canvas_prompt(
     total_batches: int = 1,
     global_total_frames: int | None = None,
     is_final_batch: bool = False,
+    frame_poses: list[str] | None = None,
+    frame_offset: int = 0,
 ) -> str:
     """Build a prompt for canvas-based sprite sheet generation."""
     hex_color = CHROMAKEY_HEX.get(chromakey_color, "#00FF00")
-    anim_desc = ANIMATION_DESCRIPTIONS.get(animation_type, f"a {animation_type} animation.")
 
     if grid_cols and grid_rows:
         layout_desc = f"{total_frames} numbered frame slots arranged in a {grid_cols}x{grid_rows} grid (read left-to-right, top-to-bottom)"
@@ -86,9 +120,15 @@ def build_canvas_prompt(
     else:
         floor_desc = "a 3x3 isometric stone tile floor (9 tiles in a diamond)"
 
+    # Build per-frame pose data when provided
+    frame_poses_data = _build_frame_poses(
+        frame_poses, total_frames, loop,
+        single_batch=(batch_index == 0 and total_batches == 1),
+        frame_offset=frame_offset,
+    ) if frame_poses else None
+
     return render(
         "canvas_animation.json.j2",
-        animation_type=animation_type,
         total_frames=total_frames,
         character_description=character_description,
         style=style,
@@ -98,13 +138,15 @@ def build_canvas_prompt(
         loop=loop,
         tiles=tiles,
         layout_desc=layout_desc,
-        anim_desc=anim_desc,
+        animation_description=animation_description,
         middle_count=middle_count,
         floor_desc=floor_desc,
         batch_index=batch_index,
         total_batches=total_batches,
         global_total_frames=global_total_frames or total_frames,
         is_final_batch=is_final_batch,
+        frame_poses_data=frame_poses_data,
+        spatial_rules=DEFAULT_SPATIAL_RULES,
     )
 
 
@@ -114,7 +156,7 @@ def build_canvas_prompt(
 
 
 def build_object_animation_prompt(
-    animation_type: str,
+    animation_description: str,
     total_frames: int,
     object_description: str = "",
     style: str = "16-bit SNES RPG style",
@@ -128,13 +170,11 @@ def build_object_animation_prompt(
     total_batches: int = 1,
     global_total_frames: int | None = None,
     is_final_batch: bool = False,
+    frame_poses: list[str] | None = None,
+    frame_offset: int = 0,
 ) -> str:
     """Build a prompt for object animation sprite sheet generation."""
     hex_color = CHROMAKEY_HEX.get(chromakey_color, "#FF00FF")
-    anim_desc = OBJECT_ANIMATION_DESCRIPTIONS.get(
-        animation_type,
-        ANIMATION_DESCRIPTIONS.get(animation_type, f"a {animation_type} animation."),
-    )
 
     if grid_cols and grid_rows:
         layout_desc = f"{total_frames} numbered frame slots arranged in a {grid_cols}x{grid_rows} grid (read left-to-right, top-to-bottom)"
@@ -150,9 +190,14 @@ def build_object_animation_prompt(
     else:
         floor_desc = "a 3x3 isometric stone tile floor (9 tiles in a diamond)"
 
+    frame_poses_data = _build_frame_poses(
+        frame_poses, total_frames, loop,
+        single_batch=(batch_index == 0 and total_batches == 1),
+        frame_offset=frame_offset,
+    ) if frame_poses else None
+
     return render(
         "object_animation.json.j2",
-        animation_type=animation_type,
         total_frames=total_frames,
         object_description=object_description,
         style=style,
@@ -162,13 +207,15 @@ def build_object_animation_prompt(
         loop=loop,
         tiles=tiles,
         layout_desc=layout_desc,
-        anim_desc=anim_desc,
+        animation_description=animation_description,
         middle_count=middle_count,
         floor_desc=floor_desc,
         batch_index=batch_index,
         total_batches=total_batches,
         global_total_frames=global_total_frames or total_frames,
         is_final_batch=is_final_batch,
+        frame_poses_data=frame_poses_data,
+        spatial_rules=DEFAULT_OBJECT_SPATIAL_RULES,
     )
 
 
@@ -178,37 +225,46 @@ def build_object_animation_prompt(
 
 
 def build_effect_animation_prompt(
-    effect_name: str,
+    animation_description: str,
     total_frames: int,
-    effect_description: str = "",
     style: str = "16-bit SNES RPG style",
     chromakey_color: str = "pink",
     loop: bool = False,
     grid_cols: int | None = None,
     grid_rows: int | None = None,
+    frame_poses: list[str] | None = None,
 ) -> str:
     """Build a prompt for single-pass effect animation generation."""
     hex_color = CHROMAKEY_HEX.get(chromakey_color, "#FF00FF")
-    anim_desc = EFFECT_ANIMATION_DESCRIPTIONS.get(
-        effect_name, f"a {effect_name.replace('_', ' ')} animation.",
-    )
 
     if grid_cols and grid_rows:
         layout_desc = f"{total_frames} numbered frame slots arranged in a {grid_cols}x{grid_rows} grid (read left-to-right, top-to-bottom)"
     else:
         layout_desc = f"{total_frames} frame slots in a horizontal row"
 
+    # Effects have no anchor reference frame — all slots are fillable.
+    # For loops, the last frame is replaced by enforce_loop_closure, so cap
+    # user poses to total_frames - 1 to avoid describing a discarded frame.
+    frame_poses_data = None
+    if frame_poses:
+        max_poses = total_frames - 1 if loop else total_frames
+        capped = frame_poses[:max_poses]
+        frame_poses_data = [
+            {"slot": i + 1, "pose": pose}
+            for i, pose in enumerate(capped)
+        ]
+
     return render(
         "effect_animation.json.j2",
-        effect_name=effect_name,
         total_frames=total_frames,
-        effect_description=effect_description,
+        animation_description=animation_description,
         style=style,
         chromakey_color=chromakey_color,
         hex_color=hex_color,
         loop=loop,
         layout_desc=layout_desc,
-        anim_desc=anim_desc,
+        frame_poses_data=frame_poses_data,
+        spatial_rules=DEFAULT_EFFECT_SPATIAL_RULES,
     )
 
 

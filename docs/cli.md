@@ -29,10 +29,11 @@ By default, commands write into `output/`.
 
 Most canvas-based flows save intermediate artifacts for debugging:
 
-- `canvas_input.png` — the guide canvas sent to Gemini
-- `raw.png` or `sheet_raw.png` — the first Gemini output
+- `canvas_input.png` — the guide canvas sent to Gemini (single-batch)
+- `raw.png` or `sheet_raw.png` — the first Gemini output (single-batch)
 - `sheet_cleaned.png` — the cleanup-pass output when the pipeline removes guides
 - `sheet.png` — the final assembled output after local cleanup
+- `batch_<n>_canvas.png` / `batch_<n>_sheet_raw.png` / `batch_<n>_sheet_cleaned.png` — per-batch artifacts for multi-batch animations (>6 frames)
 
 ## `pixel-magic generate`
 
@@ -121,7 +122,7 @@ If you pass `--sizes`, resized variants are written under `views/<size>x<size>/`
 Generate animation frames for an existing character sprite.
 
 ```bash
-pixel-magic animate --name <name> --animation <type> [options]
+pixel-magic animate --name <name> --animation-description "<desc>" [options]
 ```
 
 ### Required Arguments
@@ -129,14 +130,15 @@ pixel-magic animate --name <name> --animation <type> [options]
 | Argument | Description |
 |---|---|
 | `--name <name>` | Character name. The command expects a source sprite in `output/<name>/views/` unless `--reference` is provided. |
+| `--animation-description "<desc>"` | Natural-language description of the animation (e.g. "a walk cycle — legs alternating, arms swinging"). |
 
 ### Optional Arguments
 
 | Argument | Default | Description |
 |---|---|---|
-| `--animation <type>` | `walk` | Animation name. Common values: `walk`, `idle`, `attack`, `run`, `cast`. |
 | `--description "<desc>"` | *(none)* | Extra character description to improve consistency. |
-| `--frames <n>` | `5` | Total number of frames in the cycle. |
+| `--frames <n>` | `6` | Total number of frames in the cycle. |
+| `--frame-poses "<p1>" "<p2>" ...` | *(none)* | Optional per-frame pose descriptions for fillable slots. |
 | `--loop` / `--no-loop` | `--loop` | Generate a looping or one-shot sequence. |
 | `--direction <dir>` | `south_east` | Which extracted character view to animate. Compass names like `north_east`, `south`, and `west` are canonical. |
 | `--reference <path>` | *(auto-detect)* | Use a custom reference image instead of the generated view. |
@@ -145,19 +147,27 @@ pixel-magic animate --name <name> --animation <type> [options]
 | `--style "<style>"` | `16-bit SNES RPG style` | Style description passed to Gemini. |
 | `--platform` / `--no-platform` | `--no-platform` | Add an isometric platform for perspective grounding. |
 | `--tiles {1,4,9}` | `1` | Platform size. Values above `1` imply `--platform`. |
+| `--padding <float>` | `0.2` | Slot padding fraction for pose overflow room. `0.2` = 20% extra per side, giving dynamic poses room to extend beyond the standing reference. |
 
 ### Examples
 
 Looping walk cycle:
 
 ```bash
-pixel-magic animate --name samurai --animation walk --frames 6 --platform
+pixel-magic animate \
+  --name samurai \
+  --animation-description "a walk cycle — legs alternating, arms swinging naturally" \
+  --frames 6 --platform
 ```
 
-One-shot attack with extra floor space:
+One-shot attack with per-frame poses:
 
 ```bash
-pixel-magic animate --name samurai --animation attack --frames 4 --tiles 4 --no-loop
+pixel-magic animate \
+  --name samurai \
+  --animation-description "a sword attack — wind up, strike, follow through" \
+  --frames 4 --tiles 4 --no-loop \
+  --frame-poses "arm pulls back" "sword swings forward" "full extension"
 ```
 
 Spell cast with a custom reference:
@@ -165,7 +175,7 @@ Spell cast with a custom reference:
 ```bash
 pixel-magic animate \
   --name samurai \
-  --animation cast \
+  --animation-description "a spell casting animation — hands raise, energy channels, spell releases" \
   --frames 4 \
   --direction south_east \
   --reference path/to/reference.png \
@@ -175,22 +185,27 @@ pixel-magic animate \
 ### Output
 
 ```text
-output/<name>/animations/<animation>/
-├── canvas_input.png
-├── sheet_raw.png
+output/<name>/animations/<sanitized-description>/
+├── canvas_input.png        # Single-batch canvas sent to Gemini
+├── sheet_raw.png           # Single-batch raw Gemini output
 ├── sheet_cleaned.png       # Present when platform cleanup runs
+├── batch_0_canvas.png      # Multi-batch (>6 frames): per-batch canvas
+├── batch_0_sheet_raw.png   # Multi-batch: per-batch raw output
+├── batch_0_sheet_cleaned.png  # Multi-batch: per-batch cleaned output
 ├── sheet.png
 ├── frame_01.png
 ├── frame_02.png
 └── ...
 ```
 
+Single-batch runs (≤6 frames) write `canvas_input.png` and `sheet_raw.png`. Multi-batch runs (>6 frames) write `batch_<n>_canvas.png`, `batch_<n>_sheet_raw.png`, and optionally `batch_<n>_sheet_cleaned.png` for each batch.
+
 ## `pixel-magic animate-object`
 
 Generate animation frames for an existing object sprite.
 
 ```bash
-pixel-magic animate-object --set <set-name> --name <object-name> [options]
+pixel-magic animate-object --set <set-name> --name <object-name> --animation-description "<desc>" [options]
 ```
 
 ### Required Arguments
@@ -199,14 +214,15 @@ pixel-magic animate-object --set <set-name> --name <object-name> [options]
 |---|---|
 | `--set <set-name>` | Object set name, for example `forest`, `dungeon`, or `camp`. |
 | `--name <object-name>` | Object name inside that set, for example `oak_tree_1` or `torch_1`. |
+| `--animation-description "<desc>"` | Natural-language description of the animation (e.g. "gentle swaying in wind"). |
 
 ### Optional Arguments
 
 | Argument | Default | Description |
 |---|---|---|
-| `--animation <type>` | `sway` | Animation name. |
 | `--description "<desc>"` | *(none)* | Extra object description for consistency. |
-| `--frames <n>` | `5` | Total number of frames in the cycle. |
+| `--frames <n>` | `6` | Total number of frames in the cycle. |
+| `--frame-poses "<p1>" "<p2>" ...` | *(none)* | Optional per-frame pose descriptions for fillable slots. |
 | `--loop` / `--no-loop` | `--loop` | Generate a looping or one-shot sequence. |
 | `--reference <path>` | *(auto-detect)* | Override the source object sprite path. |
 | `--output-dir <path>` | `output` | Root output directory. |
@@ -214,48 +230,43 @@ pixel-magic animate-object --set <set-name> --name <object-name> [options]
 | `--style "<style>"` | `16-bit SNES RPG style` | Style description passed to Gemini. |
 | `--platform` / `--no-platform` | `--no-platform` | Add an isometric platform for grounding. |
 | `--tiles {1,4,9}` | `1` | Platform size. Values above `1` imply `--platform`. |
+| `--padding <float>` | `0.2` | Slot padding fraction for pose overflow room. `0.2` = 20% extra per side. |
 | `--sizes "<list>"` | *(none)* | Resize frames to `16,32,48,64,96,128,256` or `all`. |
 | `--num-colors <n>` | *(preserve original)* | Palette size for resized frames. |
-
-### Common Animation Types
-
-| Type | Good for |
-|---|---|
-| `sway` | Trees, bushes, flags, banners |
-| `flicker` | Torches, candles, lanterns |
-| `burn` | Campfires, bonfires |
-| `pulse` | Crystals, magic orbs, runes |
-| `open` | Chests, gates, doors |
-| `bob` | Floating items |
-| `spin` | Coins, gems, gears |
 
 ### Examples
 
 Looping torch flicker:
 
 ```bash
-pixel-magic animate-object --set dungeon --name torch --animation flicker --frames 6
+pixel-magic animate-object --set dungeon --name torch \
+  --animation-description "a flickering animation — flame pulses and shifts shape" --frames 6
 ```
 
 One-shot chest opening:
 
 ```bash
-pixel-magic animate-object --set dungeon --name chest --animation open --frames 5 --no-loop
+pixel-magic animate-object --set dungeon --name chest \
+  --animation-description "the chest lid swings open revealing the interior" --frames 5 --no-loop
 ```
 
 Looping campfire with resized outputs:
 
 ```bash
-pixel-magic animate-object --set camp --name campfire --animation burn --frames 6 --sizes 32,64
+pixel-magic animate-object --set camp --name campfire \
+  --animation-description "flames dance and smoke wisps rise" --frames 6 --sizes 32,64
 ```
 
 ### Output
 
 ```text
-output/objects/<set-name>/animations/<object-name>/<animation>/
-├── canvas_input.png
-├── sheet_raw.png
+output/objects/<set-name>/animations/<object-name>/<sanitized-description>/
+├── canvas_input.png        # Single-batch canvas sent to Gemini
+├── sheet_raw.png           # Single-batch raw Gemini output
 ├── sheet_cleaned.png       # Present when platform cleanup runs
+├── batch_0_canvas.png      # Multi-batch (>6 frames): per-batch canvas
+├── batch_0_sheet_raw.png   # Multi-batch: per-batch raw output
+├── batch_0_sheet_cleaned.png  # Multi-batch: per-batch cleaned output
 ├── sheet.png
 ├── frame_01.png
 ├── frame_02.png
@@ -268,29 +279,30 @@ output/objects/<set-name>/animations/<object-name>/<animation>/
     └── sheet.png
 ```
 
+Single-batch runs (≤6 frames) write `canvas_input.png` and `sheet_raw.png`. Multi-batch runs (>6 frames) write `batch_<n>_canvas.png`, `batch_<n>_sheet_raw.png`, and optionally `batch_<n>_sheet_cleaned.png` for each batch.
+
 ## `pixel-magic effect`
 
 Generate subjectless VFX animation sheets such as explosions, smoke, fire, and status effects.
 
 ```bash
-pixel-magic effect (--name <effect> | --preset <preset>) [options]
+pixel-magic effect --name <name> --animation-description "<desc>" [options]
 ```
 
 ### Required Arguments
 
 | Argument | Description |
 |---|---|
-| `--name <effect>` | Generate a single named effect such as `explosion` or `fire`. |
-| `--preset <preset>` | Generate all effects in a preset group: `combat`, `magic`, `nature`, `status`, or `custom`. |
+| `--name <name>` | Effect name. Used as the output folder under `effects/`. |
+| `--animation-description "<desc>"` | Natural-language description of the effect animation. |
 
 ### Optional Arguments
 
 | Argument | Default | Description |
 |---|---|---|
-| `--names "<a,b,c>"` | *(none)* | Required when using `--preset custom`. |
-| `--description "<desc>"` | effect name | Optional extra description for the effect. |
 | `--frames <n>` | `6` | Total number of frames. Must be at least `2`. Looping effects need at least `3`. |
-| `--loop` / `--no-loop` | auto-detected by effect type | Override the default looping behavior. |
+| `--frame-poses "<p1>" "<p2>" ...` | *(none)* | Optional per-frame descriptions for each slot. |
+| `--loop` / `--no-loop` | `--no-loop` | Looping or one-shot animation. |
 | `--output-dir <path>` | `output` | Root output directory. |
 | `--style "<style>"` | `16-bit SNES RPG style` | Style description passed to Gemini. |
 | `--max-colors <n>` | `16` | Maximum color count in the prompt. |
@@ -298,45 +310,37 @@ pixel-magic effect (--name <effect> | --preset <preset>) [options]
 | `--sizes "<list>"` | *(none)* | Resize frames to `16,32,48,64,96,128,256` or `all`. |
 | `--num-colors <n>` | *(preserve original)* | Palette size for resized frames. |
 
-### Presets
-
-| Preset | Effects |
-|---|---|
-| `combat` | `explosion`, `slash`, `shield_hit` |
-| `magic` | `magic_circle`, `healing_aura`, `energy_ball` |
-| `nature` | `smoke`, `fire`, `water_splash` |
-| `status` | `poison_cloud`, `stun_stars`, `buff_glow` |
-
 ### Examples
 
 One-shot explosion:
 
 ```bash
-pixel-magic effect --name explosion --frames 4 --no-loop
+pixel-magic effect --name explosion \
+  --animation-description "an explosion — bright flash expanding outward with fire and debris, then dissipating" \
+  --frames 4 --no-loop
 ```
 
 Looping fire with resized outputs:
 
 ```bash
-pixel-magic effect --name fire --frames 4 --sizes 32
+pixel-magic effect --name fire \
+  --animation-description "flames dancing and flickering, changing shape organically each frame" \
+  --frames 4 --loop --sizes 32
 ```
 
-Generate a full preset group:
+Effect with per-frame descriptions:
 
 ```bash
-pixel-magic effect --preset combat --frames 6
-```
-
-Custom effect set:
-
-```bash
-pixel-magic effect --preset custom --names "ice_burst,lightning_arc,holy_flash" --frames 5
+pixel-magic effect --name magic_missile \
+  --animation-description "a magic missile forming and launching" \
+  --frames 4 --no-loop \
+  --frame-poses "small spark forming" "energy coalescing into orb" "orb streaking forward with trail" "impact burst"
 ```
 
 ### Output
 
 ```text
-output/effects/<effect-name>/
+output/effects/<name>/
 ├── canvas_input.png
 ├── sheet_raw.png
 ├── sheet_cleaned.png
@@ -347,12 +351,6 @@ output/effects/<effect-name>/
 └── 32x32/
     ├── frame_01.png
     └── sheet.png
-```
-
-When you use `--preset`, the command nests effects under the preset name:
-
-```text
-output/effects/<preset>/<effect-name>/
 ```
 
 ### Notes

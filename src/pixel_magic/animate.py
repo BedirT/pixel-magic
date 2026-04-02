@@ -258,7 +258,7 @@ def build_generation_canvas(
 async def _generate_single_batch(
     provider: GeminiProvider,
     reference_frame: Image.Image,
-    animation_type: str,
+    animation_description: str,
     batch_frames: int,
     loop: bool,
     character_description: str,
@@ -277,6 +277,8 @@ async def _generate_single_batch(
     loop_target: Image.Image | None = None,
     save_dir: Path | None = None,
     batch_label: str = "",
+    frame_poses: list[str] | None = None,
+    original_reference: Image.Image | None = None,
 ) -> tuple[list[Image.Image], Image.Image]:
     """Generate a single batch of animation frames.
 
@@ -319,7 +321,7 @@ async def _generate_single_batch(
         from pixel_magic.prompts import build_object_animation_prompt
 
         prompt = build_object_animation_prompt(
-            animation_type=animation_type,
+            animation_description=animation_description,
             total_frames=batch_frames,
             object_description=character_description,
             style=style,
@@ -333,10 +335,12 @@ async def _generate_single_batch(
             total_batches=total_batches,
             global_total_frames=global_total_frames,
             is_final_batch=is_final_batch,
+            frame_poses=frame_poses,
+            frame_offset=frame_offset,
         )
     else:
         prompt = build_canvas_prompt(
-            animation_type=animation_type,
+            animation_description=animation_description,
             total_frames=batch_frames,
             character_description=character_description,
             style=style,
@@ -350,10 +354,14 @@ async def _generate_single_batch(
             total_batches=total_batches,
             global_total_frames=global_total_frames,
             is_final_batch=is_final_batch,
+            frame_poses=frame_poses,
+            frame_offset=frame_offset,
         )
 
-    # Batch 0: single image. Batch 1+: [prev_sheet, canvas]
+    # Image order: [original_reference?, prev_sheet?, canvas]
     images: list[Image.Image] = []
+    if original_reference is not None:
+        images.append(original_reference)
     if prev_sheet is not None:
         images.append(prev_sheet)
     images.append(canvas)
@@ -399,10 +407,72 @@ async def _generate_single_batch(
     return frames, sheet
 
 
+def _slice_frame_poses(
+    frame_poses: list[str] | None,
+    batches: list[BatchInfo],
+    batch: BatchInfo,
+    loop: bool,
+) -> list[str] | None:
+    """Slice the global frame_poses list for a specific batch.
+
+    Frame poses correspond to fillable slots only (not anchor/overlap slots).
+    For batch 0: fillable = slots 2..N (or 2..N-1 if single-batch loop).
+    For batch N>0: fillable = slots 2..N (slot 1 is overlap anchor;
+    minus 1 more if final+loop for the loop-closure anchor).
+    """
+    if not frame_poses:
+        return None
+
+    # Compute the global fillable frame index range for this batch.
+    # Global fillable frames are 0-indexed into the user's frame_poses list.
+    if batch.is_first:
+        # Batch 0: frame 1 is reference anchor. Fillable starts at frame 2.
+        fillable_start_global = 1  # 0-indexed: frame 2 = index 1
+        fillable_end_global = batch.frame_end - 1  # 0-indexed
+        if batch.is_last and loop:
+            # Single-batch loop: last frame is also anchor
+            fillable_end_global -= 1
+    else:
+        # Batch N>0: first slot is overlap anchor. Fillable starts at +1.
+        fillable_start_global = batch.frame_start  # 0-indexed (frame_start is 1-indexed, slot 1 is overlap)
+        fillable_end_global = batch.frame_end - 1  # 0-indexed
+        if batch.is_last and loop:
+            fillable_end_global -= 1
+
+    # Map to pose indices: pose[0] corresponds to the first fillable frame
+    # globally (frame 2 of batch 0), so offset by 1 (the reference anchor).
+    # The user provides poses for all fillable frames across all batches.
+    # We need to figure out which global fillable index this batch starts at.
+    if batch.is_first:
+        pose_offset = 0
+    else:
+        # Count fillable frames in all prior batches
+        pose_offset = 0
+        for prev in batches:
+            if prev.batch_index >= batch.batch_index:
+                break
+            if prev.is_first:
+                count = prev.batch_frames - 1  # minus reference anchor
+                if prev.is_last and loop:
+                    count -= 1  # minus loop anchor
+            else:
+                count = prev.batch_frames - 1  # minus overlap anchor
+                if prev.is_last and loop:
+                    count -= 1
+            pose_offset += count
+
+    n_fillable = fillable_end_global - fillable_start_global + 1
+    if n_fillable <= 0:
+        return None
+
+    batch_poses = frame_poses[pose_offset:pose_offset + n_fillable]
+    return batch_poses if batch_poses else None
+
+
 async def generate_animation(
     provider: GeminiProvider,
     reference_frame: Image.Image,
-    animation_type: str = "walk",
+    animation_description: str,
     total_frames: int = 6,
     loop: bool = True,
     character_description: str = "",
@@ -412,6 +482,8 @@ async def generate_animation(
     platform: bool = False,
     tiles: int = 1,
     subject: str = "character",
+    frame_poses: list[str] | None = None,
+    padding: float = 0.0,
 ) -> list[Image.Image]:
     """Generate animation by filling a pre-built sprite sheet canvas.
 
@@ -424,6 +496,9 @@ async def generate_animation(
     if save_dir:
         save_dir.mkdir(parents=True, exist_ok=True)
 
+    # Capture the clean reference before compositing/padding for Gemini context
+    original_ref = reference_frame
+
     # Platform mode: composite character onto platform tile
     slot_bg = None
     if platform:
@@ -432,6 +507,23 @@ async def generate_animation(
         ref_composite, slot_bg, _crop_h = composite_on_platform(reference_frame, tiles=tiles)
     else:
         ref_composite = reference_frame
+
+    # Pad reference and slot_bg so animated poses have room to extend
+    if padding > 0:
+        chromakey_rgb = {"green": (0, 255, 0), "blue": (0, 0, 255), "pink": (255, 0, 255)}
+        fill = (*chromakey_rgb.get(chromakey_color, (0, 255, 0)), 255)
+        pw = int(ref_composite.width * (1 + 2 * padding))
+        ph = int(ref_composite.height * (1 + 2 * padding))
+        cx, cy = (pw - ref_composite.width) // 2, (ph - ref_composite.height) // 2
+
+        padded = Image.new("RGBA", (pw, ph), fill)
+        padded.paste(ref_composite, (cx, cy), ref_composite if ref_composite.mode == "RGBA" else None)
+        ref_composite = padded
+
+        if slot_bg is not None:
+            padded_bg = Image.new("RGBA", (pw, ph), fill)
+            padded_bg.paste(slot_bg, (cx, cy), slot_bg if slot_bg.mode == "RGBA" else None)
+            slot_bg = padded_bg
 
     batches = _compute_batches(total_frames, loop=loop)
 
@@ -463,10 +555,13 @@ async def generate_animation(
         if batch.is_last and loop and not batch.is_first:
             loop_target = ref_composite
 
+        # Slice frame poses for this batch
+        batch_poses = _slice_frame_poses(frame_poses, batches, batch, loop)
+
         batch_frames, batch_sheet = await _generate_single_batch(
             provider=provider,
             reference_frame=batch_ref,
-            animation_type=animation_type,
+            animation_description=animation_description,
             batch_frames=batch.batch_frames,
             loop=loop,
             character_description=character_description,
@@ -485,6 +580,8 @@ async def generate_animation(
             loop_target=loop_target,
             save_dir=save_dir,
             batch_label=batch_label,
+            frame_poses=batch_poses,
+            original_reference=original_ref,
         )
 
         # Collect frames: skip overlap frame for batch 1+ (it's a duplicate)

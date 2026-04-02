@@ -9,6 +9,9 @@
       "hex": "{{ hex_color }}"
     }
   },
+  "reference_image": {
+    "description": "The FIRST attached image is a clean standalone view of the object. Use it as the definitive reference for shape, colors, proportions, and style."
+  },
   {% if platform %}
   "platform": {
     "type": "{{ floor_desc }}",
@@ -27,24 +30,25 @@
   {% if batch_index > 0 %}
   "batch_context": {
     "batch": "{{ batch_index + 1 }} of {{ total_batches }}",
-    "continuation": "This CONTINUES a {{ animation_type }} animation. The FIRST image shows the previously generated frames. The SECOND image is the canvas to fill.",
-    "consistency": "Match the object's shape, colors, proportions, and pixel art style EXACTLY as shown in the previous frames."
+    "continuation": "The FIRST image is the clean object reference. The SECOND image shows the previously generated frames. The THIRD image is the canvas to fill.",
+    "consistency": "Match the object's shape, colors, proportions, and pixel art style EXACTLY as shown in the reference and previous frames."
     {% if is_final_batch and loop %}
     ,"final_segment": "This is the FINAL segment. The animation must smoothly return to the original starting state by the last frame. The last frame must match frame 1 of the first batch."
     {% endif %}
   },
   {% endif %}
   "animation": {
-    "type": "{{ animation_type | je }}",
-    "description": "{{ anim_desc | je }}",
+    "description": "{{ animation_description | je }}",
     "total_animation_frames": {{ global_total_frames }},
     {% if batch_index == 0 and loop and total_batches == 1 %}
     "looping": true,
+    "image_order": "Image 1 = clean object reference. Image 2 = canvas template to fill.",
     "instruction": "The FIRST and LAST slots both show the same object — this is a LOOPING animation. Fill in the {{ middle_count }} middle slots (slots 2–{{ total_frames - 1 }}) with animation frames that smoothly transition from the first pose, through the full motion, and back to the same pose.",
     "anchor_rule": "Do NOT modify the first or last slot — they are identical anchor frames for the loop. The animation must smoothly cycle: frame {{ total_frames }} flows back into frame 1."
     {% elif batch_index == 0 %}
     "looping": {{ 'true' if loop else 'false' }},
-    "instruction": "The FIRST slot contains the starting state (frame 1). Fill in the remaining {{ total_frames - 1 }} slots with animation frames that begin the {{ animation_type }} motion.",
+    "image_order": "Image 1 = clean object reference. Image 2 = canvas template to fill.",
+    "instruction": "The FIRST slot contains the starting state (frame 1). Fill in the remaining {{ total_frames - 1 }} slots with animation frames that begin the described animation.",
     "anchor_rule": "Do NOT modify the first slot — it is the reference frame, leave it exactly as-is."
     {% elif is_final_batch and loop %}
     "looping": true,
@@ -52,9 +56,24 @@
     "anchor_rule": "Do NOT modify the first slot — it is the overlap frame from the previous batch. Do NOT modify the last slot — it is the loop-closure frame matching the original state."
     {% else %}
     "looping": {{ 'true' if loop else 'false' }},
-    "instruction": "The FIRST slot shows the last frame from the previous batch (for continuity). Fill the remaining {{ total_frames - 1 }} slots continuing the {{ animation_type }} motion smoothly.",
+    "instruction": "The FIRST slot shows the last frame from the previous batch (for continuity). Fill the remaining {{ total_frames - 1 }} slots continuing the described animation smoothly.",
     "anchor_rule": "Do NOT modify the first slot — it is the overlap frame from the previous batch, leave it exactly as-is."
     {% endif %}
+  },
+  {% if frame_poses_data %}
+  "frames": [
+    {% for frame in frame_poses_data %}
+    {"slot": {{ frame.slot }}, "pose": "{{ frame.pose | je }}"{{ ', "anchor": true' if frame.get("anchor") else '' }}}{{ ',' if not loop.last else '' }}
+    {% endfor %}
+  ],
+  {% endif %}
+  "spatial_rules": {
+    "default_behavior": "Unless the animation description or frame poses explicitly indicate otherwise:",
+    "rules": [
+      {% for rule in spatial_rules %}
+      "{{ rule | je }}"{{ ',' if not loop.last else '' }}
+      {% endfor %}
+    ]
   },
   {% if object_description %}
   "object": {

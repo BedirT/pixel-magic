@@ -56,43 +56,22 @@ POSITION_NAMES_8DIR: list[str] = [
     "bottom-left platform", "bottom-right platform",
 ]
 
-ANIMATION_DESCRIPTIONS: dict[str, str] = {
-    "walk": "a walk cycle — the character takes steps forward, legs alternating, arms swinging naturally. Each frame shows a different phase of the stride.",
-    "idle": "an idle/breathing animation — very subtle motion, the character shifts weight slightly and breathes. Minimal movement.",
-    "attack": "an attack animation — the character winds up, strikes with their weapon at full extension, then follows through.",
-    "run": "a run cycle — similar to walk but faster, with more exaggerated leg extension and body lean.",
-    "cast": "a spell casting animation — the character raises their hands, channels energy, and releases a spell.",
-    "hurt": "a hurt/flinch animation — the character recoils from an impact, staggers back with head and torso tilting away from the hit.",
-    "death": "a death animation — the character collapses, falling to the ground and ending in a prone or crumpled pose.",
-    "dodge": "a dodge/evade animation — the character quickly sidesteps or rolls to one side, body low, then recovers to standing.",
-    "jump": "a jump animation — the character crouches, springs upward with arms rising, hangs at the peak, then descends and lands.",
-    "block": "a block/guard animation — the character raises a shield or weapon defensively, bracing for impact with a wide stance.",
-}
+DEFAULT_SPATIAL_RULES: list[str] = [
+    "Keep the character's feet/base touching the same ground line in every frame",
+    "Keep the character's center of mass in the same horizontal position — no sliding",
+    "Keep the character the same size in every frame — no growing or shrinking",
+]
 
-OBJECT_ANIMATION_DESCRIPTIONS: dict[str, str] = {
-    "sway": "a gentle swaying animation — the object rocks side to side as if blown by wind. Subtle, rhythmic motion. The base stays planted.",
-    "flicker": "a flickering animation — the flame or light source pulses and shifts shape between frames. Organic, jittery movement.",
-    "burn": "a burning animation — flames dance and smoke wisps rise. The fire shape changes each frame while the base stays grounded.",
-    "pulse": "a pulsing/glowing animation — the object brightens and dims rhythmically. Subtle scale or luminosity shifts.",
-    "open": "an opening animation — the object's lid, door, or cover swings open revealing the interior.",
-    "bob": "a bobbing animation — the object gently floats up and down in place. Smooth, continuous vertical motion.",
-    "spin": "a rotating animation — the object turns in place, showing different facets each frame.",
-}
+DEFAULT_OBJECT_SPATIAL_RULES: list[str] = [
+    "Keep the object's base touching the same ground line in every frame",
+    "Keep the object centered in the same horizontal position — no sliding",
+    "Keep the object the same size in every frame",
+]
 
-EFFECT_ANIMATION_DESCRIPTIONS: dict[str, str] = {
-    "explosion": "an explosion — starts as a bright flash, expands outward with fire and debris, then dissipates into smoke and embers.",
-    "slash": "a slash effect — a sharp arc of energy sweeps across the frame, trailing light, then fades away.",
-    "shield_hit": "a shield impact — concentric rings of energy pulse outward from a central hit point, then fade.",
-    "magic_circle": "a rotating magic circle — glowing runes and geometric patterns spin and pulse with arcane energy.",
-    "healing_aura": "a healing aura — gentle green/white particles rise upward, glowing warmly, in a cyclical pattern.",
-    "energy_ball": "an energy ball — a sphere of crackling energy pulses, sparks, and shifts shape between frames.",
-    "smoke": "a smoke puff — a cloud billows outward from the center, expanding and thinning as it dissipates.",
-    "fire": "a fire animation — flames dance and flicker, changing shape organically each frame while maintaining the same base position.",
-    "water_splash": "a water splash — droplets erupt upward and arc outward in all directions, then settle.",
-    "poison_cloud": "a poison cloud — sickly green gas swirls and undulates in place with subtle drifting particles.",
-    "stun_stars": "stun stars — small stars orbit in a circle above, twinkling and spinning rhythmically.",
-    "buff_glow": "a buff glow — a radiant aura pulses outward rhythmically, with rising energy particles.",
-}
+DEFAULT_EFFECT_SPATIAL_RULES: list[str] = [
+    "Keep the effect centered in the same position in every frame",
+    "Keep the overall effect size consistent between frames",
+]
 
 
 def background_instruction(chromakey_color: str = "green") -> str:

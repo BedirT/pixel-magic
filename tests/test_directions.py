@@ -39,7 +39,10 @@ def test_canonical_direction_supports_compass_and_legacy_aliases(raw: str, expec
 
 def test_animate_parser_defaults_to_south_east() -> None:
     parser = _build_parser()
-    args = parser.parse_args(["animate", "--name", "hero"])
+    args = parser.parse_args([
+        "animate", "--name", "hero",
+        "--animation-description", "a walk cycle",
+    ])
     assert args.direction == "south_east"
 
 
@@ -50,7 +53,11 @@ def test_animate_rejects_unknown_direction(
     monkeypatch.setattr(
         sys,
         "argv",
-        ["pixel-magic", "animate", "--name", "hero", "--direction", "upsideways"],
+        [
+            "pixel-magic", "animate", "--name", "hero",
+            "--animation-description", "a walk cycle",
+            "--direction", "upsideways",
+        ],
     )
 
     with pytest.raises(SystemExit) as excinfo:
